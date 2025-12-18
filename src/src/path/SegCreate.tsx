@@ -9,12 +9,14 @@ import { createRelation, SegmentRelationType } from '../backend/segment'
 import { createContent } from '../backend/content'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
 import { segmentCache, segChildrenCache, PathSegmentCache } from '../backend/cache'
+import ContentUpload from '../view/ContentUpload'
 import './SegCreate.css'
 
 interface SegCreateProps {
   onSegmentCreated?: () => void
   onCancel?: () => void
   presetType?: 'path' | 'content'
+  presetContentType?: 'text' | 'image'
   presetDirectParent?: string  // ID of the direct parent segment
 }
 
@@ -22,12 +24,15 @@ const SegCreate: React.FC<SegCreateProps> = ({
   onSegmentCreated, 
   onCancel,
   presetType,
+  presetContentType,
   presetDirectParent
 }) => {
   const [segmentType, setSegmentType] = useState<'path' | 'content'>(presetType || 'path')
   const [name, setName] = useState('')
-  const [contentType, setContentType] = useState<number>(1) // Default to text (type 1)
+  const [contentTypeSelection, setContentTypeSelection] = useState<'text' | 'image'>(presetContentType || 'text')
+  const [contentType, setContentType] = useState<number>(presetContentType === 'image' ? 10 : 1) // 1 = text, 10 = image
   const [contentValue, setContentValue] = useState('')
+  const [imageFile, setImageFile] = useState<File | null>(null)
   
   // Parent selection
   const [parentSearchQuery, setParentSearchQuery] = useState('')
@@ -212,11 +217,23 @@ const SegCreate: React.FC<SegCreateProps> = ({
       } else {
         // Create content entry
         // Empty name is allowed for segment-bound content
+        let finalValue = contentValue
+        
+        // For image type, convert file to base64 if file is provided
+        if (contentTypeSelection === 'image' && imageFile) {
+          const reader = new FileReader()
+          finalValue = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = () => reject(new Error('Failed to read file'))
+            reader.readAsDataURL(imageFile)
+          })
+        }
+        
         const createResult = await createContent(
           newId,
           name,  // Can be empty string
-          1,     // type_code: 1 = text/plain (default)
-          contentValue  // Content value
+          contentType,     // type_code: 1 = text, 10 = image
+          finalValue  // Content value (text or base64 image)
         )
         if (createResult.code !== 0) {
           setError(createResult.message || 'Failed to create content')
@@ -316,20 +333,46 @@ const SegCreate: React.FC<SegCreateProps> = ({
         <>
           <div className="form-row">
             <label>Content Type:</label>
-            <select value={contentType} onChange={(e) => setContentType(Number(e.target.value))}>
-              <option value={1}>Text</option>
+            <select 
+              value={contentTypeSelection} 
+              onChange={(e) => {
+                const newType = e.target.value as 'text' | 'image'
+                setContentTypeSelection(newType)
+                setContentType(newType === 'text' ? 1 : 10)
+              }}
+            >
+              <option value="text">Text</option>
+              <option value="image">Image</option>
             </select>
           </div>
-          <div className="form-row">
-            <label>Content Value:</label>
-            <textarea
-              value={contentValue}
-              onChange={(e) => setContentValue(e.target.value)}
-              placeholder="Enter content value"
-              className="content-textarea"
-              rows={4}
-            />
-          </div>
+          
+          {contentTypeSelection === 'text' ? (
+            <div className="form-row">
+              <label>Content Value:</label>
+              <textarea
+                value={contentValue}
+                onChange={(e) => setContentValue(e.target.value)}
+                placeholder="Enter content value"
+                className="content-textarea"
+                rows={4}
+              />
+            </div>
+          ) : (
+            <div className="form-row">
+              <label>Image File:</label>
+              <ContentUpload
+                mode="image"
+                onFileSelect={(file) => {
+                  setImageFile(file)
+                  // Auto-populate name from filename if empty
+                  if (!name.trim()) {
+                    setName(file.name.replace(/\.[^/.]+$/, ''))
+                  }
+                }}
+                currentFile={imageFile}
+              />
+            </div>
+          )}
         </>
       )}
 

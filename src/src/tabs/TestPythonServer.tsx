@@ -124,6 +124,14 @@ const TestPythonServer: React.FC = () => {
     }
   }
 
+  const isImageResponse = (log: RequestLog) => {
+    // Check if response is base64 image data
+    if (log.response && log.response.startsWith('data:image/')) {
+      return true
+    }
+    return false
+  }
+
   const selectedLog = selectedLogIndex !== null ? logs[selectedLogIndex] : null
 
   return (
@@ -306,9 +314,15 @@ const TestPythonServer: React.FC = () => {
                       <div className="detail-info">
                         <div><strong>Status:</strong> {selectedLog.status}</div>
                       </div>
-                      <div className="response-body">
-                        <pre>{formatResponse(selectedLog.response)}</pre>
-                      </div>
+                      {isImageResponse(selectedLog) ? (
+                        <div className="response-image">
+                          <img src={selectedLog.response} alt="Response" />
+                        </div>
+                      ) : (
+                        <div className="response-body">
+                          <pre>{formatResponse(selectedLog.response)}</pre>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>

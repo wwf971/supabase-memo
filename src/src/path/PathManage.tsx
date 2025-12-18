@@ -75,8 +75,16 @@ const PathManage: React.FC = () => {
       canNaviBack: false,
       canNaviForward: false
     }
-    setTabs([...tabs, newTab])
+    const newTabs = [...tabs, newTab]
+    setTabs(newTabs)
     setActiveTabId(newTab.tabId)
+    
+    // Switch to the new tab after state update
+    setTimeout(() => {
+      const tabIndex = newTabs.length - 1
+      const tabKey = `tab-${tabIndex + 1}`
+      // TabsOnTop will automatically switch to this tab via activeTabKey
+    }, 0)
   }
 
   const handleNavi = (tabId: string, newPath: string[], newLabel?: string) => {

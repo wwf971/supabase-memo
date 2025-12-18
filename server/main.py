@@ -210,11 +210,14 @@ def get_content_multi_query(segments: List[str]):
     type_code = content.get('type_code', 1)
     value = content.get('value', '')
     
-    # Get content type name
-    type_result = supabase.table('content_type').select('type_name').eq('type_code', type_code).execute()
-    mime_type = 'text/plain'
-    if type_result.data and len(type_result.data) > 0:
-        mime_type = type_result.data[0]['type_name']
+    # Map type_code to MIME type
+    mime_type_map = {
+        1: 'text/plain',
+        2: 'text/html',
+        3: 'text/markdown',
+        10: 'image/png',  # Assume PNG for images
+    }
+    mime_type = mime_type_map.get(type_code, 'text/plain')
     
     return {'code': 0, 'data': {'content': content, 'mime_type': mime_type, 'value': value}}
 
@@ -243,11 +246,22 @@ def get_content_pg_function(segments: List[str]):
         result = supabase.rpc('get_content_by_path', {'path_segments': segments}).execute()
         if result.data and len(result.data) > 0:
             content = result.data[0]
+            type_code = content.get('type_code', 1)
+            
+            # Map type_code to MIME type
+            mime_type_map = {
+                1: 'text/plain',
+                2: 'text/html',
+                3: 'text/markdown',
+                10: 'image/png',  # Assume PNG for images, could be enhanced
+            }
+            mime_type = mime_type_map.get(type_code, 'text/plain')
+            
             return {
                 'code': 0,
                 'data': {
                     'content': content,
-                    'mime_type': content.get('type_name', 'text/plain'),
+                    'mime_type': mime_type,
                     'value': content.get('value', '')
                 }
             }

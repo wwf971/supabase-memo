@@ -133,6 +133,43 @@ class Cache<T extends { id: string }> {
   size(): number {
     return this.cache.size
   }
+
+  /**
+   * Rename item (update name in database and cache)
+   */
+  async rename(id: string, newName: string): Promise<{ code: number; message?: string }> {
+    const startTime = performance.now()
+    console.log(`[${this.tableName}] 📝 Renaming ${id} to "${newName}"`)
+    
+    try {
+      const client = getSupabaseClient()
+      if (!client) {
+        return { code: -1, message: 'Supabase client not available' }
+      }
+
+      // Update in database
+      const { data, error } = await client
+        .from(this.tableName)
+        .update({ name: newName, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error || !data) {
+        console.log(`[${this.tableName}] ❌ Rename failed: ${error?.message || 'Unknown error'}`)
+        return { code: -2, message: error?.message || 'Failed to rename' }
+      }
+
+      // Update cache
+      this.cache.set(id, data)
+      console.log(`[${this.tableName}] ✅ Renamed successfully (${(performance.now() - startTime).toFixed(2)}ms)`)
+      
+      return { code: 0 }
+    } catch (err: any) {
+      console.log(`[${this.tableName}] ❌ Rename error: ${err.message}`)
+      return { code: -3, message: err.message }
+    }
+  }
 }
 
 /**

@@ -88,6 +88,35 @@
   color: #1a1a1a;
 }
 
+.name-cell-rename-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.name-editable {
+  display: inline-block;
+  min-width: 40px;
+  outline: none;
+  border-bottom: 1px solid #0066cc;
+  background: #f0f8ff;
+  padding: 0 2px;
+}
+
+.name-editable:focus {
+  background: #e6f2ff;
+}
+
+.name-editable[contenteditable="false"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rename-spinner {
+  display: inline-flex;
+  align-items: center;
+}
+
 .indirect-badge {
   font-size: 11px;
   color: #666;

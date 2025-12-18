@@ -2,6 +2,8 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { getContent, updateContent } from '../backend/content'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import ImageView from './ImageView'
+import Header from './Header'
 import './ContentView.css'
 
 interface ContentViewProps {
@@ -164,7 +166,18 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
     )
   }
 
-  // Render editable content
+  // For image type, use ImageView
+  if (contentData.type_code === 10) {
+    return (
+      <ImageView
+        contentId={contentId}
+        contentName={contentName}
+        imageData={contentData.value}
+      />
+    )
+  }
+
+  // Render editable content for text types
   const renderContent = () => {
     // For now, all content types use textarea (we can enhance later for HTML/markdown)
     return (
@@ -183,21 +196,18 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
 
   return (
     <div className="content-view">
-      <div className="content-view-header">
-        <div className="content-view-title">
-          {contentName || '(unnamed content)'}
-        </div>
-        <div className="content-view-meta">
-          <span className="content-type-badge">{contentTypeName}</span>
-          <button
-            className="update-button"
-            onClick={handleSave}
-            disabled={!hasChanges() || isSaving}
-          >
-            {isSaving ? 'Updating...' : 'Update'}
-          </button>
-        </div>
-      </div>
+      <Header
+        title={contentName || '(unnamed content)'}
+        badge={contentTypeName}
+        actions={[
+          {
+            label: 'Update',
+            onClick: handleSave,
+            disabled: !hasChanges() || isSaving,
+            loading: isSaving
+          }
+        ]}
+      />
       <div className="content-view-body">
         {renderContent()}
       </div>

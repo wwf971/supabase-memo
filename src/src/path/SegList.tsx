@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef } from 'react'
-import { FolderIcon, InfoIcon, CrossIcon } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { FolderIcon, InfoIcon, CrossIcon, SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
 import './SegList.css'
 
 export interface ListItem {
@@ -21,6 +21,11 @@ interface SegListProps {
   error?: string | null
   onItemDoubleClick?: (itemId: string, itemType: 'segment' | 'content') => void
   onItemContextMenu?: (e: React.MouseEvent, itemId: string, itemType: 'segment' | 'content') => void
+  renamingItemId?: string | null  // ID of item being renamed
+  renamingClickPos?: { x: number; y: number } | null  // Click position for cursor placement
+  isRenamingInProgress?: boolean  // Whether rename is in progress
+  onRenameSubmit?: (itemId: string, newName: string) => void  // Callback when rename is submitted
+  onRenameCancel?: () => void  // Callback when rename is cancelled
   // Customization props
   selectionMode?: boolean
   columns?: SegListColumn[]  // Which columns to display
@@ -42,6 +47,7 @@ function getContentTypeLabel(typeCode: number): string {
     1: 'Content/text',
     2: 'Content/html',
     3: 'Content/markdown',
+    10: 'Content/image',
   }
   return typeMap[typeCode] || 'Content/unknown'
 }
@@ -56,6 +62,11 @@ const SegList: React.FC<SegListProps> = ({
   error = null,
   onItemDoubleClick,
   onItemContextMenu,
+  renamingItemId,
+  renamingClickPos,
+  isRenamingInProgress = false,
+  onRenameSubmit,
+  onRenameCancel,
   selectionMode = false,
   columns = ['name', 'type', 'value'],
   showDirectParentRadio = false,
@@ -67,6 +78,7 @@ const SegList: React.FC<SegListProps> = ({
   colWidthRatio = {},
   onUpdateColWidthRatio
 }) => {
+  const [editingName, setEditingName] = useState<string>('')
   // Column widths state (in pixels)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [resizing, setResizing] = useState<string | null>(null)
@@ -270,13 +282,16 @@ const SegList: React.FC<SegListProps> = ({
               </th>
             )}
             {showDirectParentRadio && (
-              <th className="radio-header">
-                <span className="radio-header-content">
-                  Direct
-                  <span className="info-icon-wrapper" title="Set as direct parent">
-                    <InfoIcon width={14} height={14} />
+              <th className="radio-header" style={columnWidths['direct'] ? { width: columnWidths['direct'] } : undefined}>
+                <div className="th-content">
+                  <span className="radio-header-content">
+                    Direct
+                    <span className="info-icon-wrapper" title="Set as direct parent">
+                      <InfoIcon width={14} height={14} />
+                    </span>
                   </span>
-                </span>
+                  <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, 'direct', columns.length)} />
+                </div>
               </th>
             )}
             {showRemoveButton && <th className="remove-header"></th>}
@@ -290,9 +305,115 @@ const SegList: React.FC<SegListProps> = ({
               className={`${item.type === 'segment' ? 'segment-row' : 'content-row'} ${selectionMode ? 'selection-mode' : ''}`}
             >
               {columns.includes('name') && (
-                <td className="name-cell">
-                  {item.name}
-                  {item.relationToDirect === false && <span className="indirect-badge"> (indirect)</span>}
+                <td 
+                  className="name-cell"
+                  onContextMenu={(e) => {
+                    if (onItemContextMenu) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onItemContextMenu(e, item.id, item.type)
+                    }
+                  }}
+                >
+                  {renamingItemId === item.id ? (
+                    <span className="name-cell-rename-wrapper">
+                      <span
+                        className="name-editable"
+                        contentEditable={!isRenamingInProgress}
+                        suppressContentEditableWarning
+                        onFocus={(e) => {
+                          setEditingName(item.name)
+                          
+                          // Set cursor position based on click location
+                          if (renamingClickPos) {
+                            const rect = e.target.getBoundingClientRect()
+                            const clickX = renamingClickPos.x - rect.left
+                            const text = e.target.textContent || ''
+                            
+                            // Create a temporary span to measure character positions
+                            const tempSpan = document.createElement('span')
+                            tempSpan.style.visibility = 'hidden'
+                            tempSpan.style.position = 'absolute'
+                            tempSpan.style.whiteSpace = 'pre'
+                            tempSpan.style.font = window.getComputedStyle(e.target).font
+                            document.body.appendChild(tempSpan)
+                            
+                            let closestIndex = text.length
+                            let minDistance = Math.abs(clickX - rect.width)
+                            
+                            for (let i = 0; i <= text.length; i++) {
+                              tempSpan.textContent = text.substring(0, i)
+                              const charX = tempSpan.offsetWidth
+                              const distance = Math.abs(clickX - charX)
+                              
+                              if (distance < minDistance) {
+                                minDistance = distance
+                                closestIndex = i
+                              }
+                            }
+                            
+                            document.body.removeChild(tempSpan)
+                            
+                            // Set cursor at calculated position
+                            const range = document.createRange()
+                            const sel = window.getSelection()
+                            const textNode = e.target.firstChild
+                            
+                            if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                              range.setStart(textNode, Math.min(closestIndex, textNode.textContent?.length || 0))
+                              range.collapse(true)
+                              sel?.removeAllRanges()
+                              sel?.addRange(range)
+                            }
+                          }
+                        }}
+                        onBlur={(e) => {
+                          if (isRenamingInProgress) return
+                          
+                          const newName = e.target.textContent?.trim() || ''
+                          if (newName && newName !== item.name && onRenameSubmit) {
+                            onRenameSubmit(item.id, newName)
+                          } else if (onRenameCancel) {
+                            onRenameCancel()
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (isRenamingInProgress) {
+                            e.preventDefault()
+                            return
+                          }
+                          
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            e.currentTarget.blur()
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault()
+                            if (onRenameCancel) {
+                              onRenameCancel()
+                            }
+                          }
+                        }}
+                        ref={(el) => {
+                          if (el && renamingItemId === item.id && !isRenamingInProgress) {
+                            el.textContent = item.name
+                            el.focus()
+                          }
+                        }}
+                      >
+                        {item.name}
+                      </span>
+                      {isRenamingInProgress && (
+                        <span className="rename-spinner">
+                          <SpinningCircle width={14} height={14} />
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <>
+                      {item.name}
+                      {item.relationToDirect === false && <span className="indirect-badge"> (indirect)</span>}
+                    </>
+                  )}
                 </td>
               )}
               {columns.includes('path') && (

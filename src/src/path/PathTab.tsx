@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { segmentCache, segChildrenCache, contentCache, PathSegmentCache } from '../backend/cache'
 import { getSupabaseClient } from '../backend/supabase'
 import { getChildren, SegmentRelationType, getPathToRoot, getDirectParent } from '../backend/segment'
-import { getPathSegment, getSegments, formatSegmentPath, formatContentPath } from './pathUtils'
+import { getPathSegment, getSegments, formatSegmentPath, formatContentPath } from './PathUtils'
 import PathBar from './PathBar'
 import { ListItem } from './SegList'
 import SegList from './SegList'
@@ -11,7 +11,7 @@ import SegView from '../view/SegView'
 import SegCreate from './SegCreate'
 import PathTabAllItem from './PathTabAllItem'
 import ContentView from '../view/ContentView'
-import Menu, { MenuItem } from './Menu'
+import Menu, { MenuItem, MenuItemSingle } from '@wwf971/react-comp-misc/src/menu/Menu'
 import { PathSegment } from '@wwf971/react-comp-misc/src/path/PathBar'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
 import './PathTab.css'
@@ -68,6 +68,9 @@ const PathTab: React.FC<PathTabProps> = ({
   const [error, setError] = useState<string | null>(null)
   const [isSwitching, setIsSwitching] = useState(false)
   const [switchingReason, setSwitchingReason] = useState<string>('')
+  const [renamingItemId, setRenamingItemId] = useState<string | null>(null)
+  const [renamingClickPos, setRenamingClickPos] = useState<{ x: number; y: number } | null>(null)
+  const [isRenamingInProgress, setIsRenamingInProgress] = useState(false)
   
   // Track previous path to detect actual changes (not just reference changes)
   const prevPathRef = React.useRef<string[]>([])
@@ -76,6 +79,7 @@ const PathTab: React.FC<PathTabProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId?: string } | null>(null)
   const [showCreatePanel, setShowCreatePanel] = useState(false)
   const [createType, setCreateType] = useState<'path' | 'content'>('path')
+  const [contentTypeForCreate, setContentTypeForCreate] = useState<'text' | 'image'>('text')
 
   /**
    * Load segment information from cache or server
@@ -215,26 +219,26 @@ const PathTab: React.FC<PathTabProps> = ({
         let directIds: string[] = []
         if (segChildrenCache.has(parentId, SegmentRelationType.PARENT_CHILD_DIRECT)) {
           directIds = segChildrenCache.get(parentId, SegmentRelationType.PARENT_CHILD_DIRECT) || []
-          console.log(`[PathTab] ✓ Direct children found in cache: ${directIds.length} items`)
+          // console.log(`[PathTab] ✓ Direct children found in cache: ${directIds.length} items`)
         } else {
-          console.log(`[PathTab] ✗ Direct children not in cache, fetching from server...`)
+          // console.log(`[PathTab] ✗ Direct children not in cache, fetching from server...`)
           const directResult = await getChildren(parentId, SegmentRelationType.PARENT_CHILD_DIRECT)
           directIds = directResult.code === 0 ? (directResult.data || []) : []
           segChildrenCache.set(parentId, SegmentRelationType.PARENT_CHILD_DIRECT, directIds)
-          console.log(`[PathTab] ✓ Fetched and cached ${directIds.length} direct children`)
+          // console.log(`[PathTab] ✓ Fetched and cached ${directIds.length} direct children`)
         }
         
         // Get indirect children (check cache first)
         let indirectIds: string[] = []
         if (segChildrenCache.has(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT)) {
           indirectIds = segChildrenCache.get(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT) || []
-          console.log(`[PathTab] ✓ Indirect children found in cache: ${indirectIds.length} items`)
+          // console.log(`[PathTab] ✓ Indirect children found in cache: ${indirectIds.length} items`)
         } else {
-          console.log(`[PathTab] ✗ Indirect children not in cache, fetching from server...`)
+          // console.log(`[PathTab] ✗ Indirect children not in cache, fetching from server...`)
           const indirectResult = await getChildren(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
           indirectIds = indirectResult.code === 0 ? (indirectResult.data || []) : []
           segChildrenCache.set(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT, indirectIds)
-          console.log(`[PathTab] ✓ Fetched and cached ${indirectIds.length} indirect children`)
+          // console.log(`[PathTab] ✓ Fetched and cached ${indirectIds.length} indirect children`)
         }
 
         // Load direct children details (can be segments or content)
@@ -461,8 +465,9 @@ const PathTab: React.FC<PathTabProps> = ({
   /**
    * Handle context menu item click
    */
-  const handleCreateFromMenu = (type: 'path' | 'content') => {
+  const handleCreateFromMenu = (type: 'path' | 'content', contentType?: 'text' | 'image') => {
     setCreateType(type)
+    setContentTypeForCreate(contentType || 'text')
     setShowCreatePanel(true)
     setContextMenu(null)
   }
@@ -487,22 +492,28 @@ const PathTab: React.FC<PathTabProps> = ({
       // Context menu for content item
       return [
         {
-          label: 'View Details',
-          onClick: () => {
-              handleItemDoubleClick(contextMenu.itemId!, 'content')
-            handleCloseContextMenu()
-          }
+          type: 'item',
+          name: 'View Details',
+          data: { action: 'viewDetails', itemId: contextMenu.itemId, itemType: 'content' }
+        },
+        {
+          type: 'item',
+          name: 'Rename',
+          data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'content' }
         }
       ]
       } else {
         // Context menu for segment - could add segment-specific actions here
         return [
           {
-            label: 'Open',
-            onClick: () => {
-              handleItemDoubleClick(contextMenu.itemId!, 'segment')
-              handleCloseContextMenu()
-            }
+            type: 'item',
+            name: 'Open',
+            data: { action: 'open', itemId: contextMenu.itemId, itemType: 'segment' }
+          },
+          {
+            type: 'item',
+            name: 'Rename',
+            data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'segment' }
           }
         ]
       }
@@ -510,15 +521,85 @@ const PathTab: React.FC<PathTabProps> = ({
       // Context menu for background (create new items)
       return [
         {
-          label: 'Create new segment',
-          onClick: () => handleCreateFromMenu('path')
+          type: 'item',
+          name: 'Create new segment',
+          data: { action: 'createSegment' }
         },
         {
-          label: 'Create new content',
-          onClick: () => handleCreateFromMenu('content')
+          type: 'item',
+          name: 'Create new text content',
+          data: { action: 'createContent', contentType: 'text' }
+        },
+        {
+          type: 'item',
+          name: 'Create new image content',
+          data: { action: 'createContent', contentType: 'image' }
         }
       ]
     }
+  }
+
+  /**
+   * Handle menu item click
+   */
+  const handleMenuItemClick = (item: MenuItemSingle) => {
+    const { action, itemId, contentType } = item.data || {}
+    
+    if (action === 'viewDetails' && itemId) {
+      handleItemDoubleClick(itemId, 'content')
+    } else if (action === 'open' && itemId) {
+      handleItemDoubleClick(itemId, 'segment')
+    } else if (action === 'createSegment') {
+      handleCreateFromMenu('path')
+    } else if (action === 'createContent') {
+      handleCreateFromMenu('content', contentType || 'text')
+    } else if (action === 'rename' && itemId) {
+      setRenamingItemId(itemId)
+      setRenamingClickPos(contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null)
+    }
+    handleCloseContextMenu()
+  }
+
+  /**
+   * Handle rename submit
+   */
+  const handleRenameSubmit = async (itemId: string, newName: string) => {
+    console.log(`[PathTab] Renaming ${itemId} to "${newName}"`)
+    
+    setIsRenamingInProgress(true)
+    const startTime = performance.now()
+    
+    const result = await segmentCache.rename(itemId, newName)
+    
+    // Ensure at least 0.2s display time for loading state
+    const elapsed = performance.now() - startTime
+    const remainingTime = Math.max(0, 200 - elapsed)
+    
+    await new Promise(resolve => setTimeout(resolve, remainingTime))
+    
+    if (result.code === 0) {
+      // Update local items list
+      setItems(prevItems => 
+        prevItems.map(item => 
+          item.id === itemId ? { ...item, name: newName } : item
+        )
+      )
+      console.log(`[PathTab] ✅ Rename successful`)
+    } else {
+      alert(`Failed to rename: ${result.message || 'Unknown error'}`)
+    }
+    
+    setIsRenamingInProgress(false)
+    setRenamingItemId(null)
+    setRenamingClickPos(null)
+  }
+
+  /**
+   * Handle rename cancel
+   */
+  const handleRenameCancel = () => {
+    setRenamingItemId(null)
+    setRenamingClickPos(null)
   }
 
   /**
@@ -614,14 +695,27 @@ const PathTab: React.FC<PathTabProps> = ({
     }
     
     return (
-      <PathTabAllItem
-        items={items}
-        loading={loading}
-        error={error}
-        onItemDoubleClick={handleItemDoubleClick}
-        onItemContextMenu={handleItemContextMenu}
-        onRetry={loadItems}
-      />
+      <>
+        <PathTabAllItem
+          items={items}
+          loading={loading}
+          error={error}
+          onItemDoubleClick={handleItemDoubleClick}
+          onItemContextMenu={handleItemContextMenu}
+          onRetry={loadItems}
+        />
+        
+        {/* Context Menu */}
+        {contextMenu && (
+          <Menu
+            items={getContextMenuItems()}
+            position={{ x: contextMenu.x, y: contextMenu.y }}
+            onClose={handleCloseContextMenu}
+            onItemClick={handleMenuItemClick}
+            onContextMenu={handleContextMenu}
+          />
+        )}
+      </>
     )
   }
 
@@ -674,6 +768,7 @@ const PathTab: React.FC<PathTabProps> = ({
             </div>
             <SegCreate 
               presetType={createType}
+              presetContentType={contentTypeForCreate}
               presetDirectParent={data.currentPath[data.currentPath.length - 1]}
               onSegmentCreated={handleCreationComplete}
               onCancel={() => setShowCreatePanel(false)}
@@ -688,6 +783,11 @@ const PathTab: React.FC<PathTabProps> = ({
             error={error}
             onItemDoubleClick={handleItemDoubleClick}
             onItemContextMenu={handleItemContextMenu}
+            renamingItemId={renamingItemId}
+            renamingClickPos={renamingClickPos}
+            isRenamingInProgress={isRenamingInProgress}
+            onRenameSubmit={handleRenameSubmit}
+            onRenameCancel={handleRenameCancel}
             colWidthRatio={data.colWidthRatio}
             onUpdateColWidthRatio={(ratios) => {
               onDataChange({ ...data, colWidthRatio: ratios })
@@ -701,6 +801,7 @@ const PathTab: React.FC<PathTabProps> = ({
             items={getContextMenuItems()}
             position={{ x: contextMenu.x, y: contextMenu.y }}
             onClose={handleCloseContextMenu}
+            onItemClick={handleMenuItemClick}
           />
         )}
       </div>

@@ -12,6 +12,11 @@ interface SegViewProps {
   error?: string | null
   onItemDoubleClick?: (itemId: string, itemType: 'segment' | 'content') => void
   onItemContextMenu?: (e: React.MouseEvent, itemId: string, itemType: 'segment' | 'content') => void
+  renamingItemId?: string | null
+  renamingClickPos?: { x: number; y: number } | null
+  isRenamingInProgress?: boolean
+  onRenameSubmit?: (itemId: string, newName: string) => void
+  onRenameCancel?: () => void
   colWidthRatio?: Record<string, number>
   onUpdateColWidthRatio?: (ratios: Record<string, number>) => void
 }
@@ -27,6 +32,11 @@ const SegView: React.FC<SegViewProps> = ({
   error = null,
   onItemDoubleClick,
   onItemContextMenu,
+  renamingItemId,
+  renamingClickPos,
+  isRenamingInProgress,
+  onRenameSubmit,
+  onRenameCancel,
   colWidthRatio,
   onUpdateColWidthRatio
 }) => {
@@ -60,6 +70,11 @@ const SegView: React.FC<SegViewProps> = ({
           error={error}
           onItemDoubleClick={onItemDoubleClick}
           onItemContextMenu={onItemContextMenu}
+          renamingItemId={renamingItemId}
+          renamingClickPos={renamingClickPos}
+          isRenamingInProgress={isRenamingInProgress}
+          onRenameSubmit={onRenameSubmit}
+          onRenameCancel={onRenameCancel}
           columns={['name', 'path', 'type']}
           colWidthRatio={colWidthRatio}
           onUpdateColWidthRatio={onUpdateColWidthRatio}
