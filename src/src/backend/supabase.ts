@@ -7,20 +7,41 @@ let currentConfig = {
   anonKey: ''
 }
 
+// Config file structure
+interface ConfigFile {
+  project_url?: string
+  anon_key?: string
+}
+
 // Try to load default config
 export const loadDefaultConfig = async () => {
   try {
-    // @ts-ignore - config.0.js is optional and git-ignored
-    const configModule = await import('../../../config.0.js')
-    if (configModule.supabase_config) {
+    // Try to load config.0.json first (overwrites config.json)
+    const response = await fetch('/config.0.json')
+    if (response.ok) {
+      const config = await response.json() as ConfigFile
       return {
-        apiUrl: configModule.supabase_config.project_url || '',
-        anonKey: configModule.supabase_config.anon_key || ''
+        apiUrl: config.project_url || '',
+        anonKey: config.anon_key || ''
+      }
+    }
+  } catch (e) {
+    // config.0.json doesn't exist, try config.json
+  }
+  
+  try {
+    const response = await fetch('/config.json')
+    if (response.ok) {
+      const config = await response.json() as ConfigFile
+      return {
+        apiUrl: config.project_url || '',
+        anonKey: config.anon_key || ''
       }
     }
   } catch (e) {
     // Config file doesn't exist
   }
+  
   return { apiUrl: '', anonKey: '' }
 }
 

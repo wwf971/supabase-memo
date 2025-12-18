@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React from 'react'
-import { ListItem } from './SegList'
-import SegList from './SegList'
+import { ListItem } from '../path/SegList'
+import SegList from '../path/SegList'
 import './SegView.css'
 
 interface SegViewProps {

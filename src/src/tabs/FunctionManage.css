@@ -1,0 +1,112 @@
+/* Function Card - IDENTICAL structure to TableManage */
+.function-card {
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+}
+
+.function-card-header {
+  padding: 12px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.function-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.function-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-type-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #e9ecef;
+  color: #495057;
+  letter-spacing: 0.5px;
+}
+
+.function-name-status-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.function-name {
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.function-status {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+}
+
+.function-status.exists {
+  color: #155724;
+  background: #d4edda;
+}
+
+.function-status.missing {
+  color: #721c24;
+  background: #f8d7da;
+}
+
+.function-status.loading-status {
+  background: #e7f3ff;
+  color: #004085;
+}
+
+.function-description {
+  margin: 0;
+  font-size: 13px;
+  color: #adb5bd;
+  line-height: 1.4;
+}
+
+.function-card-actions {
+  padding: 8px 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.btn-view-sql {
+  padding: 6px 12px;
+  background: #17a2b8;
+  color: white;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-view-sql:hover {
+  background: #138496;
+}
+
+.card-loading {
+  font-size: 13px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.btn-recheck {
+  padding: 2px 8px;
+  background: #e9ecef;
+  color: #495057;
+  border: 1px solid #ced4da;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-recheck:hover {
+  background: #dee2e6;
+}
+

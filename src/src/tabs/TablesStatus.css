@@ -64,10 +64,18 @@
   font-style: italic;
 }
 
+/* Grid Layout */
 .tables-container {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.functions-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
 }
 
 .table-status-grid {
@@ -243,5 +251,155 @@ button:disabled {
   overflow-x: auto;
   max-height: 400px;
   overflow-y: auto;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  max-width: 800px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: #212529;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  cursor: pointer;
+  color: #6c757d;
+  line-height: 1;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.modal-close:hover {
+  background: #e9ecef;
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sql-section {
+  margin-bottom: 20px;
+}
+
+.sql-section:last-of-type {
+  margin-bottom: 16px;
+}
+
+.sql-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sql-section-header span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.copy-btn {
+  padding: 4px 10px;
+  border: 1px solid #dee2e6;
+  background: white;
+  cursor: pointer;
+  font-size: 12px;
+  border-radius: 3px;
+  transition: all 0.15s;
+}
+
+.copy-btn:hover {
+  background: #e9ecef;
+}
+
+.modal-body .sql-code {
+  margin: 0;
+  padding: 12px;
+  padding-top: 12px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.5;
+  color: #212529;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.modal-body .sql-instructions {
+  padding: 12px;
+  background: #d1ecf1;
+  border: 1px solid #bee5eb;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #0c5460;
+}
+
+.modal-body .sql-instructions strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.modal-body .sql-instructions ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.modal-body .sql-instructions li {
+  margin-bottom: 4px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .tables-container,
+  .functions-container {
+    grid-template-columns: 1fr;
+  }
 }
 

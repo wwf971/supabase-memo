@@ -1,7 +1,8 @@
 // @ts-nocheck - React 19 type compatibility issue with FC components
 import MasterDetail from '@wwf971/react-comp-misc/src/layout/MasterDetail'
-import TestConnect from './components/TestConnect'
-import TablesStatus from './components/TablesStatus'
+import TestConnect from './tabs/TestConnect'
+import TablesStatus from './tabs/TablesStatus'
+import TestPythonServer from './tabs/TestPythonServer'
 import IdManage from './id/IdManage'
 import PathManage from './path/PathManage'
 
@@ -12,8 +13,11 @@ function App() {
         <MasterDetail.SubTab label="Supabase" isDefault>
           <TestConnect />
         </MasterDetail.SubTab>
-        <MasterDetail.SubTab label="Tables">
-            <TablesStatus />
+        <MasterDetail.SubTab label="Database">
+          <TablesStatus />
+        </MasterDetail.SubTab>
+        <MasterDetail.SubTab label="Python Server">
+          <TestPythonServer />
         </MasterDetail.SubTab>
         <MasterDetail.SubTab label="ID Manage">
           <IdManage />

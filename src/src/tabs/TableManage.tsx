@@ -8,6 +8,7 @@ interface TableManageProps {
   createSQL: string
   onRefresh: () => void
   onRefreshSingle: () => void
+  onShowSQL?: (sql: string) => void
 }
 
 const TableManage: React.FC<TableManageProps> = ({
@@ -15,7 +16,8 @@ const TableManage: React.FC<TableManageProps> = ({
   description,
   exists,
   createSQL,
-  onRefreshSingle
+  onRefreshSingle,
+  onShowSQL
 }) => {
   const [showCreateSQL, setShowCreateSQL] = useState(false)
   const [showDeleteSQL, setShowDeleteSQL] = useState(false)
@@ -53,6 +55,7 @@ const TableManage: React.FC<TableManageProps> = ({
       <div className="table-card-header">
         <div className="table-info">
           <div className="table-name-row">
+            <div className="item-type-badge">TABLE</div>
             <div className="table-name-status-group">
               <span className="table-name">{tableName}</span>
               {exists === null ? (
@@ -77,6 +80,11 @@ const TableManage: React.FC<TableManageProps> = ({
         {exists === null ? (
           // Loading state
           <div className="card-loading">Loading...</div>
+        ) : onShowSQL ? (
+          // Use modal for SQL display
+          <button onClick={() => onShowSQL(createSQL)} className="btn-view-sql">
+            View SQL
+          </button>
         ) : exists === false ? (
           // Table missing - show "How to create" button
           <button onClick={toggleCreateSQL} className="btn-how-to-create">
