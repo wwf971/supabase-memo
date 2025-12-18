@@ -1,0 +1,247 @@
+.tables-status {
+  padding: 16px;
+  max-width: 900px;
+}
+
+.database-init h2 {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  color: #212529;
+}
+
+.database-init h3 {
+  margin: 4px 0px;
+  font-size: 16px;
+  color: #495057;
+}
+
+.database-init .description {
+  margin: 0 0 8px 0;
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.setup-note {
+  padding: 8px 12px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.setup-note code {
+  background: #fff;
+  padding: 1px 4px;
+  border: 1px solid #ddd;
+  font-family: monospace;
+}
+
+.error-message {
+  padding: 8px;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.dismiss-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #721c24;
+  padding: 0 4px;
+}
+
+.loading {
+  padding: 12px;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.tables-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.table-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid;
+}
+
+.status-item.exists {
+  background: #d4edda;
+  border-color: #c3e6cb;
+  color: #155724;
+}
+
+.status-item.missing {
+  background: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.status-icon {
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.status-label {
+  font-family: monospace;
+  font-size: 13px;
+}
+
+/* Actions Section */
+.actions-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+}
+
+.info-text {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #6c757d;
+}
+
+.success-text {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #155724;
+  font-weight: 500;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Buttons */
+.btn-primary {
+  padding: 8px 16px;
+  background: #007bff;
+  color: white;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.btn-secondary {
+  padding: 8px 16px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.btn-danger {
+  padding: 8px 16px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.btn-warning {
+  padding: 8px 16px;
+  background: #ffc107;
+  color: #212529;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #e0a800;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* SQL Section */
+.sql-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+}
+
+.sql-instructions {
+  margin: 8px 0;
+  padding: 8px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sql-container {
+  position: relative;
+  margin: 12px 0;
+}
+
+.copy-sql-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  background: #28a745;
+  color: white;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.copy-sql-btn:hover {
+  background: #218838;
+}
+
+.sql-code {
+  margin: 0;
+  padding: 8px;
+  padding-top: 32px;
+  background: #ffffff;
+  border: 1px solid #ced4da;
+  font-family: monospace;
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+

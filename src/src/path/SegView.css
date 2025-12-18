@@ -1,0 +1,54 @@
+.seg-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.seg-view-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 4px 6px;
+  border-bottom: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  gap: 4px;
+}
+
+.seg-view-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.seg-view-meta {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.seg-stat-badge {
+  padding: 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background-color: #e9ecef;
+  color: #495057;
+}
+
+.segment-badge {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.content-badge {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.seg-view-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+

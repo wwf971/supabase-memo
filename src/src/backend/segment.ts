@@ -1,0 +1,309 @@
+import { getSupabaseClient } from './supabase'
+import { segPathCache, segChildrenCache } from './cache'
+
+/**
+ * Segment relation types
+ */
+export enum SegmentRelationType {
+  PARENT_CHILD_DIRECT = 0,
+  PARENT_CHILD_INDIRECT = 1
+}
+
+export interface SegmentRelation {
+  id: number
+  type: number
+  segment_1: string
+  segment_2: string
+  created_at: string
+  metadata: any
+}
+
+/**
+ * Get all parents of a segment or content
+ * @param id - ID of segment or content
+ * @param relationType - Relation type (default: PARENT_CHILD_DIRECT)
+ */
+export async function getParents(
+  id: string,
+  relationType: SegmentRelationType = SegmentRelationType.PARENT_CHILD_DIRECT
+): Promise<{ code: number; message?: string; data?: string[] }> {
+  try {
+    const startTime = performance.now()
+    console.log(`[segment] 🔍 Getting parents for ${id} (relation: ${relationType})...`)
+    
+    const client = getSupabaseClient()
+
+    // Query where id is segment_2 (child), get segment_1 (parent)
+    const dbStart = performance.now()
+    const { data, error } = await client
+      .from('segment_relation')
+      .select('segment_1')
+      .eq('type', relationType)
+      .eq('segment_2', id)
+
+    if (error) {
+      console.log(`[segment] ❌ Failed to get parents (${(performance.now() - startTime).toFixed(2)}ms)`)
+      return { code: -5, message: error.message }
+    }
+
+    const parents = data?.map((row: any) => row.segment_1) || []
+    const dbTime = (performance.now() - dbStart).toFixed(2)
+    console.log(`[segment] ✅ Got ${parents.length} parents (DB: ${dbTime}ms, Total: ${(performance.now() - startTime).toFixed(2)}ms)`)
+    
+    return { code: 0, data: parents }
+  } catch (err: any) {
+    if (err.message && err.message.includes('not configured')) {
+      return { code: -1, message: 'Supabase not configured.' }
+    }
+    return { code: -5, message: err.message || 'Failed to get parents' }
+  }
+}
+
+/**
+ * Get all children of a segment or content
+ * @param id - ID of segment or content
+ * @param relationType - Relation type (default: PARENT_CHILD_DIRECT)
+ */
+export async function getChildren(
+  id: string,
+  relationType: SegmentRelationType = SegmentRelationType.PARENT_CHILD_DIRECT
+): Promise<{ code: number; message?: string; data?: string[] }> {
+  try {
+    const startTime = performance.now()
+    console.log(`[segment] 🔍 Getting children for ${id} (relation: ${relationType})...`)
+    
+    const client = getSupabaseClient()
+
+    // Query where id is segment_1 (parent), get segment_2 (child)
+    const dbStart = performance.now()
+    const { data, error } = await client
+      .from('segment_relation')
+      .select('segment_2')
+      .eq('type', relationType)
+      .eq('segment_1', id)
+
+    if (error) {
+      console.log(`[segment] ❌ Failed to get children (${(performance.now() - startTime).toFixed(2)}ms)`)
+      return { code: -5, message: error.message }
+    }
+
+    const children = data?.map((row: any) => row.segment_2) || []
+    const dbTime = (performance.now() - dbStart).toFixed(2)
+    console.log(`[segment] ✅ Got ${children.length} children (DB: ${dbTime}ms, Total: ${(performance.now() - startTime).toFixed(2)}ms)`)
+    
+    return { code: 0, data: children }
+  } catch (err: any) {
+    if (err.message && err.message.includes('not configured')) {
+      return { code: -1, message: 'Supabase not configured.' }
+    }
+    return { code: -5, message: err.message || 'Failed to get children' }
+  }
+}
+
+/**
+ * Create a parent-child relationship
+ * @param parentId - Parent ID (segment or content)
+ * @param childId - Child ID (segment or content)
+ * @param relationType - Relation type (default: PARENT_CHILD_DIRECT)
+ */
+export async function createRelation(
+  parentId: string,
+  childId: string,
+  relationType: SegmentRelationType = SegmentRelationType.PARENT_CHILD_DIRECT
+): Promise<{ code: number; message?: string; data?: SegmentRelation }> {
+  try {
+    const client = getSupabaseClient()
+
+    const { data, error } = await client
+      .from('segment_relation')
+      .insert({
+        type: relationType,
+        segment_1: parentId,
+        segment_2: childId
+      })
+      .select()
+      .single()
+
+    if (error) {
+      return { code: -5, message: error.message }
+    }
+
+    // Invalidate relevant caches
+    segChildrenCache.delete(parentId, relationType)
+    segPathCache.delete(childId) // Path to root changed for child
+    console.log(`[segment] Invalidated caches: children(${parentId}, ${relationType}), path(${childId})`)
+
+    return { code: 0, data }
+  } catch (err: any) {
+    if (err.message && err.message.includes('not configured')) {
+      return { code: -1, message: 'Supabase not configured.' }
+    }
+    return { code: -5, message: err.message || 'Failed to create relation' }
+  }
+}
+
+/**
+ * Delete a relationship
+ * @param parentId - Parent ID
+ * @param childId - Child ID
+ * @param relationType - Relation type (default: PARENT_CHILD_DIRECT)
+ */
+export async function deleteRelation(
+  parentId: string,
+  childId: string,
+  relationType: SegmentRelationType = SegmentRelationType.PARENT_CHILD_DIRECT
+): Promise<{ code: number; message?: string }> {
+  try {
+    const client = getSupabaseClient()
+
+    const { error } = await client
+      .from('segment_relation')
+      .delete()
+      .eq('type', relationType)
+      .eq('segment_1', parentId)
+      .eq('segment_2', childId)
+
+    if (error) {
+      return { code: -5, message: error.message }
+    }
+
+    // Invalidate relevant caches
+    segChildrenCache.delete(parentId, relationType)
+    segPathCache.delete(childId) // Path to root changed for child
+    console.log(`[segment] Invalidated caches after deletion: children(${parentId}, ${relationType}), path(${childId})`)
+
+    return { code: 0 }
+  } catch (err: any) {
+    if (err.message && err.message.includes('not configured')) {
+      return { code: -1, message: 'Supabase not configured.' }
+    }
+    return { code: -5, message: err.message || 'Failed to delete relation' }
+  }
+}
+
+/**
+ * Get all relations for a given ID (both as parent and child)
+ * @param id - ID of segment or content
+ * @param relationType - Optional relation type filter
+ */
+export async function getAllRelations(
+  id: string,
+  relationType?: SegmentRelationType
+): Promise<{ code: number; message?: string; data?: SegmentRelation[] }> {
+  try {
+    const client = getSupabaseClient()
+
+    let query = client
+      .from('segment_relation')
+      .select('*')
+      .or(`segment_1.eq.${id},segment_2.eq.${id}`)
+
+    if (relationType !== undefined) {
+      query = query.eq('type', relationType)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      return { code: -5, message: error.message }
+    }
+
+    return { code: 0, data: data || [] }
+  } catch (err: any) {
+    if (err.message && err.message.includes('not configured')) {
+      return { code: -1, message: 'Supabase not configured.' }
+    }
+    return { code: -5, message: err.message || 'Failed to get relations' }
+  }
+}
+
+/**
+ * Get the direct parent of a segment (type 0 relationship)
+ * @param id - ID of segment
+ */
+export async function getDirectParent(
+  id: string
+): Promise<{ code: number; message?: string; data?: string | null }> {
+  const result = await getParents(id, SegmentRelationType.PARENT_CHILD_DIRECT)
+  
+  if (result.code !== 0) {
+    return { code: result.code, message: result.message, data: null }
+  }
+
+  const parents = result.data || []
+  return { code: 0, data: parents.length > 0 ? parents[0] : null }
+}
+
+/**
+ * Get path to root for a segment (following direct parent relationships)
+ * Returns array of segment IDs from root to the given segment
+ * @param segmentId - The segment to get path for
+ * @returns { code, data: string[] } - Array of segment IDs [root, ..., segment]
+ */
+export const getPathToRoot = async (segmentId: string): Promise<{ code: number; data?: string[]; message?: string }> => {
+  const startTime = performance.now()
+  
+  try {
+    // Check cache first
+    if (segPathCache.has(segmentId)) {
+      const cachedPath = segPathCache.get(segmentId)!
+      console.log(`[segment] ✓ Path to root found in CACHE for ${segmentId}: ${cachedPath.length} segments (${(performance.now() - startTime).toFixed(2)}ms)`)
+      return { code: 0, data: cachedPath }
+    }
+
+    console.log(`[segment] ⚠️ Path to root NOT in cache for ${segmentId}, computing with SERVER requests...`)
+    
+    const client = getSupabaseClient()
+    const path: string[] = []
+    let currentId: string | null = segmentId
+    const visited = new Set<string>() // Prevent infinite loops
+    let dbRequestCount = 0
+    
+    // Traverse up to root following direct parent relationships
+    while (currentId) {
+      // Prevent infinite loops
+      if (visited.has(currentId)) {
+        console.error(`[segment] Cycle detected in parent chain for ${segmentId}`)
+        return { code: -2, message: 'Cycle detected in parent relationships' }
+      }
+      visited.add(currentId)
+      
+      path.unshift(currentId) // Add to beginning of array
+      
+      // Get direct parent
+      const dbStart = performance.now()
+      const { data: relations, error } = await client
+        .from('segment_relation')
+        .select('segment_1')
+        .eq('segment_2', currentId)
+        .eq('type', SegmentRelationType.PARENT_CHILD_DIRECT)
+        .limit(1)
+      
+      dbRequestCount++
+      console.log(`[segment] 🔍 DB request #${dbRequestCount} for parent of ${currentId}: ${(performance.now() - dbStart).toFixed(2)}ms`)
+      
+      if (error) {
+        console.error(`[segment] Error getting parent for ${currentId}:`, error)
+        return { code: -1, message: error.message }
+      }
+      
+      // If no direct parent, we've reached root
+      if (!relations || relations.length === 0) {
+        currentId = null
+      } else {
+        currentId = relations[0].segment_1
+      }
+    }
+    
+    // Cache the path
+    segPathCache.set(segmentId, path)
+    const totalTime = (performance.now() - startTime).toFixed(2)
+    console.log(`[segment] ✅ Computed and cached path for ${segmentId}: ${path.length} segments, ${dbRequestCount} DB requests, TOTAL: ${totalTime}ms`)
+    
+    return { code: 0, data: path }
+  } catch (err: any) {
+    console.error(`[segment] Failed to get path to root:`, err)
+    return { code: -1, message: err.message || 'Failed to get path to root' }
+  }
+}
+

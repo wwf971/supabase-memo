@@ -1,0 +1,162 @@
+.supabase-config {
+  padding: 16px;
+  max-width: 600px;
+}
+
+.supabase-config h2 {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+  color: #212529;
+}
+
+.supabase-config .description {
+  margin: 0 0 16px 0;
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-field {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  font-size: 14px;
+  font-family: monospace;
+  transition: border-color 0.15s ease-in-out;
+}
+
+.input-with-icon .input-field {
+  padding-right: 32px;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.toggle-password-btn {
+  position: absolute;
+  right: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c757d;
+  transition: color 0.15s ease-in-out;
+}
+
+.toggle-password-btn:hover {
+  color: #495057;
+}
+
+.toggle-password-btn:focus {
+  outline: none;
+}
+
+.input-field::placeholder {
+  color: #adb5bd;
+}
+
+.button-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.test-button {
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.test-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.test-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.test-button.testing {
+  background-color: #6c757d;
+}
+
+.spinner-container {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-message {
+  margin-top: 12px;
+  padding: 8px;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.status-message.testing {
+  background-color: #e7f3ff;
+  border-color: #b3d9ff;
+  color: #004085;
+}
+
+.status-message.success {
+  background-color: #d4edda;
+  border-color: #c3e6cb;
+  color: #155724;
+}
+
+.status-message.error {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.status-icon {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.status-text {
+  flex: 1;
+}
+
+/* Next Step */
+.next-step {
+  margin-top: 12px;
+  padding: 12px;
+  background: #d1ecf1;
+  border: 1px solid #bee5eb;
+  color: #0c5460;
+  font-size: 14px;
+}
+

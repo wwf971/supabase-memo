@@ -1,0 +1,200 @@
+.seg-list {
+  padding: 6px;
+}
+
+.seg-list-loading,
+.seg-list-error,
+.seg-list-empty {
+  padding: 20px;
+  text-align: center;
+  color: #666;
+}
+
+.seg-list-error {
+  color: #d32f2f;
+}
+
+.seg-list-empty {
+  color: #999;
+}
+
+.seg-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed;
+}
+
+.seg-list-table thead {
+  background-color: transparent;
+}
+
+.seg-list-table th {
+  text-align: left;
+  padding: 4px 4px;
+  font-weight: 600;
+  color: #495057;
+  border-left: 1px solid #d0d0d0;
+  position: relative;
+  user-select: none;
+}
+
+.seg-list-table th:first-child {
+  border-left: none;
+}
+
+.th-content {
+  display: flex;
+  align-items: center;
+}
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 1;
+}
+
+.resize-handle:hover {
+  background-color: #007bff;
+  opacity: 0.5;
+}
+
+.seg-list-table thead tr:hover {
+  background-color: #e9ecef;
+}
+
+.seg-list-table tbody tr {
+  box-sizing: border-box;
+  border-bottom: 1px solid #dee2e6;
+  transition: background-color 0.15s;
+}
+
+.seg-list-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.seg-list-table td {
+  padding: 4px 4px;
+  padding-bottom: 2px;
+}
+
+.name-cell {
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.indirect-badge {
+  font-size: 11px;
+  color: #666;
+  font-weight: normal;
+  font-style: italic;
+}
+
+.type-icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.type-cell {
+  color: #6c757d;
+}
+
+.path-cell {
+  color: #999;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.value-cell {
+  color: #495057;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+/* Row styling based on type */
+.segment-row {
+  cursor: pointer;
+}
+
+.content-row {
+  cursor: pointer;
+}
+
+.segment-row:hover {
+  background-color: #e3f2fd !important;
+}
+
+.content-row:hover {
+  background-color: #fff3e0 !important;
+}
+
+/* Selection mode styles */
+.selection-mode {
+  cursor: default;
+}
+
+.radio-header {
+  width: 70px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.radio-header-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.info-icon-wrapper {
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+  opacity: 0.6;
+}
+
+.info-icon-wrapper:hover {
+  opacity: 1;
+}
+
+.remove-header {
+  width: 40px;
+  text-align: center;
+}
+
+.remove-cell {
+  text-align: center;
+  padding: 4px;
+}
+
+.remove-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.remove-button:hover {
+  opacity: 1;
+}
+
+.radio-cell {
+  text-align: center;
+  padding: 8px;
+}
+
+.radio-cell input[type="radio"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
