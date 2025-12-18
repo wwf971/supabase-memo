@@ -210,16 +210,43 @@ def get_content_multi_query(segments: List[str]):
     type_code = content.get('type_code', 1)
     value = content.get('value', '')
     
-    # Map type_code to MIME type
-    mime_type_map = {
+    # Check if this is a binary reference
+    if value.startswith('binary:'):
+        binary_id = value[7:]  # Remove "binary:" prefix
+        binary_result = supabase.table('content_binary').select('*').eq('id', binary_id).execute()
+        
+        if not binary_result.data:
+            return {'code': -4, 'message': f'Binary data not found for ID {binary_id}'}
+        
+        binary_data = binary_result.data[0]
+        # Determine content type from type_code (should query content_type table)
+        content_type = 'application/octet-stream'
+        if type_code == 10:
+            content_type = 'image/png'
+        elif type_code == 21:
+            content_type = 'application/pdf'
+        
+        return {
+            'code': 0,
+            'data': {
+                'content': content,
+                'content_type': content_type,
+                'value': binary_data.get('data'),
+                'is_binary': True
+            }
+        }
+    
+    # Map type_code to content type (should query content_type table)
+    content_type_map = {
         1: 'text/plain',
         2: 'text/html',
         3: 'text/markdown',
-        10: 'image/png',  # Assume PNG for images
+        10: 'image/png',  # Legacy base64 images
+        21: 'application/pdf',  # Legacy base64 PDFs
     }
-    mime_type = mime_type_map.get(type_code, 'text/plain')
+    content_type = content_type_map.get(type_code, 'text/plain')
     
-    return {'code': 0, 'data': {'content': content, 'mime_type': mime_type, 'value': value}}
+    return {'code': 0, 'data': {'content': content, 'content_type': content_type, 'value': value, 'is_binary': False}}
 
 # ============================================================================
 # POSTGRESQL FUNCTION METHODS (Primary approach - single query)
@@ -247,22 +274,51 @@ def get_content_pg_function(segments: List[str]):
         if result.data and len(result.data) > 0:
             content = result.data[0]
             type_code = content.get('type_code', 1)
+            value = content.get('value', '')
             
-            # Map type_code to MIME type
-            mime_type_map = {
+            # Check if this is a binary reference
+            if value.startswith('binary:'):
+                binary_id = value[7:]  # Remove "binary:" prefix
+                binary_result = supabase.table('content_binary').select('*').eq('id', binary_id).execute()
+                
+                if not binary_result.data:
+                    return {'code': -4, 'message': f'Binary data not found for ID {binary_id}'}
+                
+                binary_data = binary_result.data[0]
+                # Determine content type from type_code (should query content_type table)
+                content_type = 'application/octet-stream'
+                if type_code == 10:
+                    content_type = 'image/png'
+                elif type_code == 21:
+                    content_type = 'application/pdf'
+                
+                return {
+                    'code': 0,
+                    'data': {
+                        'content': content,
+                        'content_type': content_type,
+                        'value': binary_data.get('data'),
+                        'is_binary': True
+                    }
+                }
+            
+            # Map type_code to content type (should query content_type table)
+            content_type_map = {
                 1: 'text/plain',
                 2: 'text/html',
                 3: 'text/markdown',
-                10: 'image/png',  # Assume PNG for images, could be enhanced
+                10: 'image/png',  # Legacy base64 images
+                21: 'application/pdf',  # Legacy base64 PDFs
             }
-            mime_type = mime_type_map.get(type_code, 'text/plain')
+            content_type = content_type_map.get(type_code, 'text/plain')
             
             return {
                 'code': 0,
                 'data': {
                     'content': content,
-                    'mime_type': mime_type,
-                    'value': content.get('value', '')
+                    'content_type': content_type,
+                    'value': value,
+                    'is_binary': False
                 }
             }
         return {'code': -1, 'message': 'Content not found'}
@@ -317,20 +373,20 @@ def handle_path(path):
                 return jsonify({'error': 'Not found', 'message': result.get('message', 'Content not found')}), 404
             
             data = result.get('data', {})
-            mime_type = data.get('mime_type', 'text/plain')
+            content_type = data.get('content_type', 'text/plain')
             value = data.get('value', '')
             
-            # Return content based on mime type
-            if mime_type.startswith('application/json'):
+            # Return content based on content type
+            if content_type.startswith('application/json'):
                 try:
                     json_value = json.loads(value) if isinstance(value, str) else value
                     return jsonify(json_value)
                 except:
-                    return Response(value, mimetype=mime_type)
-            elif mime_type.startswith('text/'):
-                return Response(value, mimetype=mime_type)
+                    return Response(value, mimetype=content_type)
+            elif content_type.startswith('text/'):
+                return Response(value, mimetype=content_type)
             else:
-                return Response(value, mimetype=mime_type)
+                return Response(value, mimetype=content_type)
     
     except Exception as e:
         print(f"[ERROR] Exception processing request: {e}")

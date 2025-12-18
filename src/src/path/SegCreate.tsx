@@ -8,15 +8,16 @@ import { createPathSegment } from './pathUtils'
 import { createRelation, SegmentRelationType } from '../backend/segment'
 import { createContent } from '../backend/content'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
-import { segmentCache, segChildrenCache, PathSegmentCache } from '../backend/cache'
+import { segmentCache, segChildrenCache, contentBinaryCache, PathSegmentCache } from '../backend/cache'
 import ContentUpload from '../view/ContentUpload'
+import { detectFileType, isFileTypeSupported } from '../utils/fileTypeDetector'
 import './SegCreate.css'
 
 interface SegCreateProps {
   onSegmentCreated?: () => void
   onCancel?: () => void
   presetType?: 'path' | 'content'
-  presetContentType?: 'text' | 'image'
+  presetContentType?: 'text' | 'image' | 'file'
   presetDirectParent?: string  // ID of the direct parent segment
 }
 
@@ -29,10 +30,16 @@ const SegCreate: React.FC<SegCreateProps> = ({
 }) => {
   const [segmentType, setSegmentType] = useState<'path' | 'content'>(presetType || 'path')
   const [name, setName] = useState('')
-  const [contentTypeSelection, setContentTypeSelection] = useState<'text' | 'image'>(presetContentType || 'text')
-  const [contentType, setContentType] = useState<number>(presetContentType === 'image' ? 10 : 1) // 1 = text, 10 = image
+  const [contentTypeSelection, setContentTypeSelection] = useState<'text' | 'image' | 'file'>(
+    presetContentType === 'image' ? 'image' : presetContentType === 'file' ? 'file' : 'text'
+  )
+  const [contentType, setContentType] = useState<number>(
+    presetContentType === 'image' ? 10 : presetContentType === 'file' ? 21 : 1
+  ) // 1 = text, 10 = image, 21 = PDF
   const [contentValue, setContentValue] = useState('')
-  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [detectedFileType, setDetectedFileType] = useState<string>('')
+  const [isFileTypeSupported, setIsFileTypeSupported] = useState<boolean>(true)
   
   // Parent selection
   const [parentSearchQuery, setParentSearchQuery] = useState('')
@@ -219,21 +226,38 @@ const SegCreate: React.FC<SegCreateProps> = ({
         // Empty name is allowed for segment-bound content
         let finalValue = contentValue
         
-        // For image type, convert file to base64 if file is provided
-        if (contentTypeSelection === 'image' && imageFile) {
-          const reader = new FileReader()
-          finalValue = await new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string)
+        // For binary file uploads (image, pdf, etc.), upload to content_binary table
+        const isBinaryType = [10, 21, 99].includes(contentType) // image, pdf, unknown binary
+        if (isBinaryType && uploadFile) {
+          // Read file as ArrayBuffer for binary storage
+          const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result as ArrayBuffer)
             reader.onerror = () => reject(new Error('Failed to read file'))
-            reader.readAsDataURL(imageFile)
+            reader.readAsArrayBuffer(uploadFile)
           })
+          
+          // Upload to content_binary table (MIME type determined from contentType)
+          const binaryResult = await contentBinaryCache.upload(
+            newId,
+            new Uint8Array(arrayBuffer)
+          )
+          
+          if (binaryResult.code !== 0) {
+            setError(binaryResult.message || 'Failed to upload binary data')
+            setIsCreating(false)
+            return
+          }
+          
+          // Store reference to binary ID in content.value
+          finalValue = `binary:${newId}`
         }
         
         const createResult = await createContent(
           newId,
           name,  // Can be empty string
-          contentType,     // type_code: 1 = text, 10 = image
-          finalValue  // Content value (text or base64 image)
+          contentType,     // type_code from file type detection
+          finalValue  // Content value (text or binary reference)
         )
         if (createResult.code !== 0) {
           setError(createResult.message || 'Failed to create content')
@@ -271,6 +295,9 @@ const SegCreate: React.FC<SegCreateProps> = ({
       // Reset form
       setName('')
       setContentValue('')
+      setUploadFile(null)
+      setDetectedFileType('')
+      setIsFileTypeSupported(true)
       setSelectedParents([])
       setSelectedChildren([])
       setDirectParentId(null)
@@ -336,13 +363,22 @@ const SegCreate: React.FC<SegCreateProps> = ({
             <select 
               value={contentTypeSelection} 
               onChange={(e) => {
-                const newType = e.target.value as 'text' | 'image'
+                const newType = e.target.value as 'text' | 'image' | 'file'
                 setContentTypeSelection(newType)
-                setContentType(newType === 'text' ? 1 : 10)
+                if (newType === 'text') {
+                  setContentType(1)
+                  setUploadFile(null)
+                } else if (newType === 'image') {
+                  setContentType(10)
+                } else {
+                  // File mode - type will be auto-detected
+                  setContentType(99)
+                }
               }}
             >
               <option value="text">Text</option>
               <option value="image">Image</option>
+              <option value="file">File (Auto-detect)</option>
             </select>
           </div>
           
@@ -357,20 +393,49 @@ const SegCreate: React.FC<SegCreateProps> = ({
                 rows={4}
               />
             </div>
-          ) : (
+          ) : contentTypeSelection === 'image' ? (
             <div className="form-row">
               <label>Image File:</label>
               <ContentUpload
                 mode="image"
                 onFileSelect={(file) => {
-                  setImageFile(file)
-                  // Auto-populate name from filename if empty
+                  setUploadFile(file)
+                  // Auto-populate name from filename if empty (preserve extension)
                   if (!name.trim()) {
-                    setName(file.name.replace(/\.[^/.]+$/, ''))
+                    setName(file.name)
                   }
                 }}
-                currentFile={imageFile}
+                currentFile={uploadFile}
               />
+            </div>
+          ) : (
+            <div className="form-row">
+              <label>File:</label>
+              <ContentUpload
+                mode="file"
+                onFileSelect={(file) => {
+                  setUploadFile(file)
+                  // Auto-populate name from filename if empty (preserve extension)
+                  if (!name.trim()) {
+                    setName(file.name)
+                  }
+                  
+                  // Detect file type
+                  const fileTypeInfo = detectFileType(file.name)
+                  setDetectedFileType(fileTypeInfo.typeName)
+                  setContentType(fileTypeInfo.typeCode)
+                  setIsFileTypeSupported(fileTypeInfo.typeCode !== 99)
+                }}
+                currentFile={uploadFile}
+              />
+              <div className="file-type-info">
+                <div>Detected type: <strong>{uploadFile ? (detectedFileType || 'Unknown') : '-'}</strong></div>
+                {uploadFile && !isFileTypeSupported && (
+                  <div className="file-type-warning">
+                    ⚠️ File type not recognized. Upload as unknown type?
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -491,7 +556,12 @@ const SegCreate: React.FC<SegCreateProps> = ({
         )}
         <button
           onClick={handleCreate}
-          disabled={isCreating || (segmentType === 'path' && !name.trim())}
+          disabled={
+            isCreating || 
+            (segmentType === 'path' && !name.trim()) ||
+            (contentTypeSelection === 'file' && !uploadFile) ||
+            (contentTypeSelection === 'file' && uploadFile && !isFileTypeSupported)
+          }
           className="create-button"
         >
           {isCreating ? (

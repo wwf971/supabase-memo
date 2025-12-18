@@ -8,6 +8,11 @@ interface PathTabAllItemProps {
   error: string | null
   onItemDoubleClick: (itemId: string, itemType: 'segment' | 'content') => void
   onItemContextMenu?: (e: React.MouseEvent, itemId: string, itemType: 'segment' | 'content') => void
+  renamingItemId?: string | null
+  renamingClickPos?: { x: number; y: number } | null
+  isRenamingInProgress?: boolean
+  onRenameSubmit?: (itemId: string, newName: string) => void
+  onRenameCancel?: () => void
   onRetry?: () => void
 }
 
@@ -20,6 +25,11 @@ const PathTabAllItem: React.FC<PathTabAllItemProps> = ({
   error,
   onItemDoubleClick,
   onItemContextMenu,
+  renamingItemId,
+  renamingClickPos,
+  isRenamingInProgress,
+  onRenameSubmit,
+  onRenameCancel,
   onRetry
 }) => {
   if (error) {
@@ -51,6 +61,11 @@ const PathTabAllItem: React.FC<PathTabAllItemProps> = ({
           error={error}
           onItemDoubleClick={onItemDoubleClick}
           onItemContextMenu={onItemContextMenu}
+          renamingItemId={renamingItemId}
+          renamingClickPos={renamingClickPos}
+          isRenamingInProgress={isRenamingInProgress}
+          onRenameSubmit={onRenameSubmit}
+          onRenameCancel={onRenameCancel}
           columns={['name', 'path', 'type']}
         />
       </div>

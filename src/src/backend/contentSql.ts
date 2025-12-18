@@ -28,7 +28,8 @@ INSERT INTO content_type (type_code, type_name, description) VALUES
   (13, 'image/gif', 'GIF image'),
   (14, 'image/webp', 'WebP image'),
   (20, 'application/json', 'JSON data'),
-  (21, 'application/pdf', 'PDF document')
+  (21, 'application/pdf', 'PDF document'),
+  (99, 'application/octet-stream', 'Unknown binary type')
 ON CONFLICT (type_code) DO NOTHING;
 `.trim()
 }

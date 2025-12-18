@@ -21,10 +21,15 @@ import './PathTab.css'
  */
 function getItemType(id: string): 'segment' | 'content' | null {
   // Must be in segment cache to exist
-  if (!segmentCache.has(id)) return null
+  if (!segmentCache.has(id)) {
+    console.log(`[getItemType] ${id} not in segment cache`)
+    return null
+  }
   
   // If also in content cache, it's content; otherwise segment
-  return contentCache.has(id) ? 'content' : 'segment'
+  const isContent = contentCache.has(id)
+  console.log(`[getItemType] ${id}: segmentCache=${true}, contentCache=${isContent} → ${isContent ? 'content' : 'segment'}`)
+  return isContent ? 'content' : 'segment'
 }
 
 /**
@@ -71,6 +76,8 @@ const PathTab: React.FC<PathTabProps> = ({
   const [renamingItemId, setRenamingItemId] = useState<string | null>(null)
   const [renamingClickPos, setRenamingClickPos] = useState<{ x: number; y: number } | null>(null)
   const [isRenamingInProgress, setIsRenamingInProgress] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: string; itemName: string } | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   
   // Track previous path to detect actual changes (not just reference changes)
   const prevPathRef = React.useRef<string[]>([])
@@ -79,7 +86,7 @@ const PathTab: React.FC<PathTabProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId?: string } | null>(null)
   const [showCreatePanel, setShowCreatePanel] = useState(false)
   const [createType, setCreateType] = useState<'path' | 'content'>('path')
-  const [contentTypeForCreate, setContentTypeForCreate] = useState<'text' | 'image'>('text')
+  const [contentTypeForCreate, setContentTypeForCreate] = useState<'text' | 'image' | 'file'>('text')
 
   /**
    * Load segment information from cache or server
@@ -154,163 +161,23 @@ const PathTab: React.FC<PathTabProps> = ({
     setError(null)
 
     try {
-      const newItems: ListItem[] = []
-      const client = getSupabaseClient()
-
+      const { loadRootItems, loadChildrenItems } = await import('../backend/children')
+      
+      let result
       if (data.currentPath.length === 0) {
-        // Load all segments
-        const segmentsResult = await getSegments()
-        
-        if (segmentsResult.code !== 0) {
-          setError(segmentsResult.message || 'Failed to load segments')
-          setLoading(false)
-          return
-        }
-
-        const allSegments = segmentsResult.data || []
-        // Cache all segments for faster lookups
-        console.log(`[PathTab] Caching ${allSegments.length} segments from root query`)
-        
-        // Also load all content items
-        const { data: allContent } = await client
-          .from('content')
-          .select('id, type_code, value')
-        
-        const contentIds = new Set((allContent || []).map(c => c.id))
-        
-        for (const seg of allSegments) {
-          segmentCache.set(seg.id, seg as PathSegmentCache)
-          
-          const isContent = contentIds.has(seg.id)
-          const itemType = isContent ? 'content' : 'segment'
-          
-          // Get path
-          let pathStr = '/'
-          if (itemType === 'segment') {
-            pathStr = await formatSegmentPath(seg.id)
-          } else {
-            const directParentResult = await getDirectParent(seg.id)
-            const parentId = directParentResult.code === 0 && directParentResult.data ? directParentResult.data : null
-            pathStr = await formatContentPath(seg.id, seg.name, parentId)
-          }
-          
-          const contentData = isContent ? allContent.find(c => c.id === seg.id) : null
-          
-          // Cache content data
-          if (contentData) {
-            const { contentCache } = await import('../backend/cache')
-            contentCache.set(seg.id, contentData)
-          }
-          
-          newItems.push({
-            id: seg.id,
-            name: seg.name,
-            type: itemType,
-            path: pathStr,
-            value: contentData?.value || undefined,
-            contentType: contentData?.type_code
-          })
-        }
+        result = await loadRootItems()
       } else {
-        // Load children of current parent (both direct and indirect)
         const parentId = data.currentPath[data.currentPath.length - 1]
-        
-        // Get direct children (check cache first)
-        let directIds: string[] = []
-        if (segChildrenCache.has(parentId, SegmentRelationType.PARENT_CHILD_DIRECT)) {
-          directIds = segChildrenCache.get(parentId, SegmentRelationType.PARENT_CHILD_DIRECT) || []
-          // console.log(`[PathTab] ✓ Direct children found in cache: ${directIds.length} items`)
-        } else {
-          // console.log(`[PathTab] ✗ Direct children not in cache, fetching from server...`)
-          const directResult = await getChildren(parentId, SegmentRelationType.PARENT_CHILD_DIRECT)
-          directIds = directResult.code === 0 ? (directResult.data || []) : []
-          segChildrenCache.set(parentId, SegmentRelationType.PARENT_CHILD_DIRECT, directIds)
-          // console.log(`[PathTab] ✓ Fetched and cached ${directIds.length} direct children`)
-        }
-        
-        // Get indirect children (check cache first)
-        let indirectIds: string[] = []
-        if (segChildrenCache.has(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT)) {
-          indirectIds = segChildrenCache.get(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT) || []
-          // console.log(`[PathTab] ✓ Indirect children found in cache: ${indirectIds.length} items`)
-        } else {
-          // console.log(`[PathTab] ✗ Indirect children not in cache, fetching from server...`)
-          const indirectResult = await getChildren(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
-          indirectIds = indirectResult.code === 0 ? (indirectResult.data || []) : []
-          segChildrenCache.set(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT, indirectIds)
-          // console.log(`[PathTab] ✓ Fetched and cached ${indirectIds.length} indirect children`)
-        }
-
-        // Load direct children details (can be segments or content)
-        for (const childId of directIds) {
-          // Use cache.get() - automatically fetches if not cached
-          const segData = await segmentCache.get(childId)
-          
-          if (segData) {
-            // Check if this child is also a content item
-            const contentData = await contentCache.get(childId)
-            
-            const itemType = contentData ? 'content' : 'segment'
-            
-            // Calculate path
-            let pathStr = '/'
-            if (itemType === 'segment') {
-              pathStr = await formatSegmentPath(childId)
-            } else {
-              // Content path: if empty name, use parent path without trailing /; otherwise append name
-              const directParentResult = await getDirectParent(childId)
-              const parentId = directParentResult.code === 0 && directParentResult.data ? directParentResult.data : null
-              pathStr = await formatContentPath(childId, segData.name, parentId)
-            }
-            
-            newItems.push({
-              id: childId,
-              name: segData.name,
-              type: itemType,
-              relationToDirect: true,
-              path: pathStr,
-              value: contentData?.value || undefined,
-              contentType: contentData?.type_code || undefined
-            })
-          }
-        }
-
-        // Load indirect children details (can be segments or content)
-        for (const childId of indirectIds) {
-          // Use cache.get() - automatically fetches if not cached
-          const segData = await segmentCache.get(childId)
-          
-          if (segData) {
-            // Check if this child is also a content item
-            const contentData = await contentCache.get(childId)
-            
-            const itemType = contentData ? 'content' : 'segment'
-            
-            // Calculate path
-            let pathStr = '/'
-            if (itemType === 'segment') {
-              pathStr = await formatSegmentPath(childId)
-            } else {
-              const directParentResult = await getDirectParent(childId)
-              const parentId = directParentResult.code === 0 && directParentResult.data ? directParentResult.data : null
-              pathStr = await formatContentPath(childId, segData.name, parentId)
-            }
-            
-            newItems.push({
-              id: childId,
-              name: segData.name,
-              type: itemType,
-              relationToDirect: false,
-              path: pathStr,
-              value: contentData?.value || undefined,
-              contentType: contentData?.type_code
-            })
-          }
-        }
+        result = await loadChildrenItems(parentId)
       }
 
-      setItems(newItems)
-      console.log(`[PathTab] ✅ loadItems() COMPLETE - ${(performance.now() - startTime).toFixed(2)}ms - Loaded ${newItems.length} items`)
+      if (result.code === 0 && result.data) {
+        setItems(result.data)
+        console.log(`[PathTab] ✅ loadItems() COMPLETE - ${(performance.now() - startTime).toFixed(2)}ms - Loaded ${result.data.length} items`)
+      } else {
+        setError(result.message || 'Failed to load items')
+        console.log(`[PathTab] ❌ loadItems() FAILED - ${(performance.now() - startTime).toFixed(2)}ms`)
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load items')
       console.log(`[PathTab] ❌ loadItems() FAILED - ${(performance.now() - startTime).toFixed(2)}ms`)
@@ -465,7 +332,7 @@ const PathTab: React.FC<PathTabProps> = ({
   /**
    * Handle context menu item click
    */
-  const handleCreateFromMenu = (type: 'path' | 'content', contentType?: 'text' | 'image') => {
+  const handleCreateFromMenu = (type: 'path' | 'content', contentType?: 'text' | 'image' | 'file') => {
     setCreateType(type)
     setContentTypeForCreate(contentType || 'text')
     setShowCreatePanel(true)
@@ -487,6 +354,7 @@ const PathTab: React.FC<PathTabProps> = ({
     if (contextMenu?.itemId) {
       // Context menu for an item - check its type from cache
       const itemType = getItemType(contextMenu.itemId)
+      console.log(`[PathTab] Context menu for item ${contextMenu.itemId}, detected type: ${itemType}`)
       
       if (itemType === 'content') {
       // Context menu for content item
@@ -500,6 +368,11 @@ const PathTab: React.FC<PathTabProps> = ({
           type: 'item',
           name: 'Rename',
           data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'content' }
+        },
+        {
+          type: 'item',
+          name: 'Delete',
+          data: { action: 'delete', itemId: contextMenu.itemId, itemType: 'content' }
         }
       ]
       } else {
@@ -521,19 +394,30 @@ const PathTab: React.FC<PathTabProps> = ({
       // Context menu for background (create new items)
       return [
         {
-          type: 'item',
-          name: 'Create new segment',
-          data: { action: 'createSegment' }
-        },
-        {
-          type: 'item',
-          name: 'Create new text content',
-          data: { action: 'createContent', contentType: 'text' }
-        },
-        {
-          type: 'item',
-          name: 'Create new image content',
-          data: { action: 'createContent', contentType: 'image' }
+          type: 'menu',
+          name: 'New',
+          children: [
+            {
+              type: 'item',
+              name: 'Segment',
+              data: { action: 'createSegment' }
+            },
+            {
+              type: 'item',
+              name: 'Text Content',
+              data: { action: 'createContent', contentType: 'text' }
+            },
+            {
+              type: 'item',
+              name: 'Image Content',
+              data: { action: 'createContent', contentType: 'image' }
+            },
+            {
+              type: 'item',
+              name: 'PDF Content',
+              data: { action: 'createContent', contentType: 'file' }
+            }
+          ]
         }
       ]
     }
@@ -544,6 +428,7 @@ const PathTab: React.FC<PathTabProps> = ({
    */
   const handleMenuItemClick = (item: MenuItemSingle) => {
     const { action, itemId, contentType } = item.data || {}
+    console.log(`[PathTab] Menu item clicked:`, { action, itemId, contentType })
     
     if (action === 'viewDetails' && itemId) {
       handleItemDoubleClick(itemId, 'content')
@@ -556,8 +441,47 @@ const PathTab: React.FC<PathTabProps> = ({
     } else if (action === 'rename' && itemId) {
       setRenamingItemId(itemId)
       setRenamingClickPos(contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null)
+    } else if (action === 'delete' && itemId) {
+      console.log(`[PathTab] Triggering delete for ${itemId}`)
+      handleDelete(itemId)
+      // Don't close context menu yet - modal will handle it
+      return
     }
     handleCloseContextMenu()
+  }
+
+  /**
+   * Handle delete content
+   */
+  const handleDelete = (itemId: string) => {
+    console.log(`[PathTab] handleDelete called for ${itemId}`)
+    const itemName = items.find(item => item.id === itemId)?.name || 'this item'
+    console.log(`[PathTab] Setting delete confirm modal for: "${itemName}"`)
+    setDeleteConfirm({ itemId, itemName })
+    handleCloseContextMenu()
+  }
+
+  /**
+   * Confirm and execute delete
+   */
+  const handleDeleteConfirm = async () => {
+    if (!deleteConfirm) return
+    
+    const { itemId } = deleteConfirm
+    setDeleteConfirm(null)
+    
+    console.log(`[PathTab] Deleting content ${itemId}`)
+    
+    const { deleteContent } = await import('../backend/content')
+    const result = await deleteContent(itemId)
+    
+    if (result.code === 0) {
+      console.log(`[PathTab] ✅ Deleted content ${itemId}`)
+      await loadItems()
+    } else {
+      console.error(`[PathTab] ❌ Failed to delete: ${result.message}`)
+      setErrorMessage(`Failed to delete: ${result.message}`)
+    }
   }
 
   /**
@@ -586,7 +510,7 @@ const PathTab: React.FC<PathTabProps> = ({
       )
       console.log(`[PathTab] ✅ Rename successful`)
     } else {
-      alert(`Failed to rename: ${result.message || 'Unknown error'}`)
+      setErrorMessage(`Failed to rename: ${result.message || 'Unknown error'}`)
     }
     
     setIsRenamingInProgress(false)
@@ -702,6 +626,11 @@ const PathTab: React.FC<PathTabProps> = ({
           error={error}
           onItemDoubleClick={handleItemDoubleClick}
           onItemContextMenu={handleItemContextMenu}
+          renamingItemId={renamingItemId}
+          renamingClickPos={renamingClickPos}
+          isRenamingInProgress={isRenamingInProgress}
+          onRenameSubmit={handleRenameSubmit}
+          onRenameCancel={handleRenameCancel}
           onRetry={loadItems}
         />
         
@@ -714,6 +643,43 @@ const PathTab: React.FC<PathTabProps> = ({
             onItemClick={handleMenuItemClick}
             onContextMenu={handleContextMenu}
           />
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirm && (
+          <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">Confirm Delete</div>
+              <div className="modal-body">
+                Are you sure you want to delete <strong>"{deleteConfirm.itemName || '(unnamed item)'}"</strong>?
+                <br />
+                This action cannot be undone.
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>
+                  Cancel
+                </button>
+                <button type="button" className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message Modal */}
+        {errorMessage && (
+          <div className="modal-overlay" onClick={() => setErrorMessage(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">Error</div>
+              <div className="modal-body">{errorMessage}</div>
+              <div className="modal-footer">
+                <button type="button" className="modal-btn modal-btn-primary" onClick={() => setErrorMessage(null)}>
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </>
     )
@@ -802,7 +768,45 @@ const PathTab: React.FC<PathTabProps> = ({
             position={{ x: contextMenu.x, y: contextMenu.y }}
             onClose={handleCloseContextMenu}
             onItemClick={handleMenuItemClick}
+            onContextMenu={handleContextMenu}
           />
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirm && (
+          <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">Confirm Delete</div>
+              <div className="modal-body">
+                Are you sure you want to delete <strong>"{deleteConfirm.itemName || '(unnamed item)'}"</strong>?
+                <br />
+                This action cannot be undone.
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>
+                  Cancel
+                </button>
+                <button type="button" className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message Modal */}
+        {errorMessage && (
+          <div className="modal-overlay" onClick={() => setErrorMessage(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">Error</div>
+              <div className="modal-body">{errorMessage}</div>
+              <div className="modal-footer">
+                <button type="button" className="modal-btn modal-btn-primary" onClick={() => setErrorMessage(null)}>
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

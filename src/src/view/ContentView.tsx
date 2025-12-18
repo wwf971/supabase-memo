@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { getContent, updateContent } from '../backend/content'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
 import ImageView from './ImageView'
+import PdfView from './PdfView'
 import Header from './Header'
 import './ContentView.css'
 
@@ -118,11 +119,19 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
         setContentData(result.data)
         setEditedValue(result.data.value || '')
         
-        // Map type_code to type name
+        // Map type_code to type name (matches content_type table)
         const typeMap: Record<number, string> = {
           1: 'text/plain',
           2: 'text/html',
           3: 'text/markdown',
+          10: 'image/png',
+          11: 'image/jpeg',
+          12: 'image/svg+xml',
+          13: 'image/gif',
+          14: 'image/webp',
+          20: 'application/json',
+          21: 'application/pdf',
+          99: 'application/octet-stream',
         }
         setContentTypeName(typeMap[result.data.type_code] || 'unknown')
         console.log(`[ContentView] ✅ Content loaded successfully (${(performance.now() - startTime).toFixed(2)}ms)`)
@@ -151,7 +160,7 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
     return (
       <div className="content-view-error">
         <div className="error-message">Error: {error}</div>
-        <button className="retry-button" onClick={loadContent}>
+        <button type="button" className="retry-button" onClick={loadContent}>
           Retry
         </button>
       </div>
@@ -167,13 +176,30 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
   }
 
   // For image type, use ImageView
-  if (contentData.type_code === 10) {
+  if (contentData.type_code >= 10 && contentData.type_code <= 14) {
     return (
-      <ImageView
-        contentId={contentId}
-        contentName={contentName}
-        imageData={contentData.value}
-      />
+      <div style={{ height: '100%' }}>
+        <ImageView
+          contentId={contentId}
+          contentName={contentName}
+          imageData={contentData.value}
+          contentType={contentTypeName}
+        />
+      </div>
+    )
+  }
+  
+  // For PDF type, use PdfView
+  if (contentData.type_code === 21) {
+    return (
+      <div style={{ height: '100%' }}>
+        <PdfView
+          contentId={contentId}
+          contentName={contentName}
+          pdfData={contentData.value}
+          contentType={contentTypeName}
+        />
+      </div>
     )
   }
 

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef } from 'react'
-import { FolderIcon, InfoIcon, CrossIcon, SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { FolderIcon, InfoIcon, CrossIcon, SpinningCircle, PdfIcon } from '@wwf971/react-comp-misc'
 import './SegList.css'
 
 export interface ListItem {
@@ -48,6 +48,13 @@ function getContentTypeLabel(typeCode: number): string {
     2: 'Content/html',
     3: 'Content/markdown',
     10: 'Content/image',
+    11: 'Content/image',
+    12: 'Content/image',
+    13: 'Content/image',
+    14: 'Content/image',
+    20: 'Content/json',
+    21: 'Content/pdf',
+    99: 'Content/unknown',
   }
   return typeMap[typeCode] || 'Content/unknown'
 }
@@ -426,6 +433,10 @@ const SegList: React.FC<SegListProps> = ({
                   {item.type === 'segment' ? (
                     <span className="type-icon-label">
                       <FolderIcon width={16} height={16} /> Segment
+                    </span>
+                  ) : item.contentType === 21 ? (
+                    <span className="type-icon-label">
+                      <PdfIcon width={16} height={16} /> {getContentTypeLabel(item.contentType)}
                     </span>
                   ) : (
                     <span className="type-icon-label">

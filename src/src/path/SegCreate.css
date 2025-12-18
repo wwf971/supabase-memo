@@ -215,6 +215,21 @@ select:focus {
   cursor: not-allowed;
 }
 
+.file-type-info {
+  padding: 8px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  font-size: 13px;
+}
+
+.file-type-warning {
+  margin-top: 4px;
+  color: #856404;
+  background: #fff3cd;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
 .cancel-button {
   padding: 8px 16px;
   background: #6c757d;
