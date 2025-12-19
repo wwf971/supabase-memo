@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useRef } from 'react'
 import { FolderIcon, InfoIcon, CrossIcon, SpinningCircle, PdfIcon } from '@wwf971/react-comp-misc'
+import { getContentTypeLabel } from '../utils/type'
 import './SegList.css'
 
 export interface ListItem {
@@ -39,25 +40,6 @@ interface SegListProps {
   onUpdateColWidthRatio?: (ratios: Record<string, number>) => void  // Callback when column widths change
 }
 
-/**
- * Helper function to get content type label
- */
-function getContentTypeLabel(typeCode: number): string {
-  const typeMap: Record<number, string> = {
-    1: 'Content/text',
-    2: 'Content/html',
-    3: 'Content/markdown',
-    10: 'Content/image',
-    11: 'Content/image',
-    12: 'Content/image',
-    13: 'Content/image',
-    14: 'Content/image',
-    20: 'Content/json',
-    21: 'Content/pdf',
-    99: 'Content/unknown',
-  }
-  return typeMap[typeCode] || 'Content/unknown'
-}
 
 /**
  * SegList - Pure presentational component
@@ -369,6 +351,17 @@ const SegList: React.FC<SegListProps> = ({
                             if (textNode && textNode.nodeType === Node.TEXT_NODE) {
                               range.setStart(textNode, Math.min(closestIndex, textNode.textContent?.length || 0))
                               range.collapse(true)
+                              sel?.removeAllRanges()
+                              sel?.addRange(range)
+                            }
+                          } else {
+                            // No click position provided - select all text
+                            const range = document.createRange()
+                            const sel = window.getSelection()
+                            const textNode = e.target.firstChild
+                            
+                            if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+                              range.selectNodeContents(e.target)
                               sel?.removeAllRanges()
                               sel?.addRange(range)
                             }

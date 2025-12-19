@@ -76,7 +76,7 @@ ON CONFLICT (type_code) DO NOTHING;
 /**
  * Get SQL to create segment table
  */
-export function createPathSegmentTable(): string {
+export function createSegmentTable(): string {
   return `
 -- Path Segment for hierarchical content structure
 -- Example: /aa/bb/cc/dd has 4 segments: aa, bb, cc, dd
@@ -106,7 +106,7 @@ CREATE TRIGGER update_segment_updated_at
 /**
  * Get SQL to create segment_relation_type table
  */
-export function createPathSegmentRelationTypeTable(): string {
+export function createSegmentRelationTypeTable(): string {
   return `
 -- Path segment relation types
 CREATE TABLE IF NOT EXISTS segment_relation_type (
@@ -126,7 +126,7 @@ ON CONFLICT (type_code) DO NOTHING;
 /**
  * Get SQL to create segment_relation table
  */
-export function createPathSegmentRelationTable(): string {
+export function createSegmentRelationTable(): string {
   return `
 -- Segment relationships (many-to-many)
 -- Supports relationships between path segments and content segments
@@ -163,11 +163,11 @@ export function getInitializationSQL(): string {
     '',
     createIdTypeTable(),
     '',
-    createPathSegmentTable(),
+    createSegmentTable(),
     '',
-    createPathSegmentRelationTypeTable(),
+    createSegmentRelationTypeTable(),
     '',
-    createPathSegmentRelationTable()
+    createSegmentRelationTable()
   ].join('\n\n')
 }
 

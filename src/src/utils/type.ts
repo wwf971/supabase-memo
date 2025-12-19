@@ -52,3 +52,23 @@ export function isFileTypeSupported(filename: string): boolean {
   return info.typeCode !== 99
 }
 
+/**
+ * Get content type label for display
+ */
+export function getContentTypeLabel(typeCode: number): string {
+  const typeMap: Record<number, string> = {
+    1: 'Content/text',
+    2: 'Content/html',
+    3: 'Content/markdown',
+    10: 'Content/image',
+    11: 'Content/image',
+    12: 'Content/image',
+    13: 'Content/image',
+    14: 'Content/image',
+    20: 'Content/json',
+    21: 'Content/pdf',
+    99: 'Content/unknown',
+  }
+  return typeMap[typeCode] || 'Content/unknown'
+}
+

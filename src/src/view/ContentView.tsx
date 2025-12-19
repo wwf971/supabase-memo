@@ -5,23 +5,26 @@ import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
 import ImageView from './ImageView'
 import PdfView from './PdfView'
 import Header from './Header'
+import Menu, { MenuItem, MenuItemSingle } from '@wwf971/react-comp-misc/src/menu/Menu'
 import './ContentView.css'
 
 interface ContentViewProps {
   contentId: string
   contentName: string
+  onDelete?: (contentId: string) => void
 }
 
 /**
  * ContentView - Display and edit content details based on content type
  */
-const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => {
+const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName, onDelete }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [contentData, setContentData] = useState<any>(null)
   const [contentTypeName, setContentTypeName] = useState<string>('')
   const [editedValue, setEditedValue] = useState<string>('')
   const [isSaving, setIsSaving] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -105,6 +108,58 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
     return editedValue !== (contentData?.value || '')
   }
 
+  /**
+   * Handle right-click context menu
+   */
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY })
+  }
+
+  /**
+   * Close context menu
+   */
+  const handleCloseContextMenu = () => {
+    setContextMenu(null)
+  }
+
+  /**
+   * Get context menu items
+   */
+  const getContextMenuItems = (): MenuItem[] => {
+    return [
+      {
+        type: 'item',
+        name: 'Delete',
+        data: { action: 'delete' }
+      }
+    ]
+  }
+
+  /**
+   * Handle menu item click
+   */
+  const handleMenuItemClick = (item: MenuItemSingle) => {
+    const { action } = item.data || {}
+    
+    if (action === 'delete') {
+      onDelete?.(contentId)
+    }
+    
+    handleCloseContextMenu()
+  }
+
+  /**
+   * Close context menu when clicking outside
+   */
+  React.useEffect(() => {
+    if (contextMenu) {
+      const handleClick = () => handleCloseContextMenu()
+      document.addEventListener('click', handleClick)
+      return () => document.removeEventListener('click', handleClick)
+    }
+  }, [contextMenu])
+
   const loadContent = async () => {
     const startTime = performance.now()
     console.log(`[ContentView] 📍 Loading content: ${contentId}`)
@@ -178,13 +233,24 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
   // For image type, use ImageView
   if (contentData.type_code >= 10 && contentData.type_code <= 14) {
     return (
-      <div style={{ height: '100%' }}>
+      <div style={{ height: '100%' }} onContextMenu={handleContextMenu}>
         <ImageView
           contentId={contentId}
           contentName={contentName}
           imageData={contentData.value}
           contentType={contentTypeName}
         />
+        
+        {/* Context Menu */}
+        {contextMenu && (
+          <Menu
+            items={getContextMenuItems()}
+            position={{ x: contextMenu.x, y: contextMenu.y }}
+            onClose={handleCloseContextMenu}
+            onItemClick={handleMenuItemClick}
+            onContextMenu={handleContextMenu}
+          />
+        )}
       </div>
     )
   }
@@ -192,13 +258,24 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
   // For PDF type, use PdfView
   if (contentData.type_code === 21) {
     return (
-      <div style={{ height: '100%' }}>
+      <div style={{ height: '100%' }} onContextMenu={handleContextMenu}>
         <PdfView
           contentId={contentId}
           contentName={contentName}
           pdfData={contentData.value}
           contentType={contentTypeName}
         />
+        
+        {/* Context Menu */}
+        {contextMenu && (
+          <Menu
+            items={getContextMenuItems()}
+            position={{ x: contextMenu.x, y: contextMenu.y }}
+            onClose={handleCloseContextMenu}
+            onItemClick={handleMenuItemClick}
+            onContextMenu={handleContextMenu}
+          />
+        )}
       </div>
     )
   }
@@ -221,7 +298,7 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
   }
 
   return (
-    <div className="content-view">
+    <div className="content-view" onContextMenu={handleContextMenu}>
       <Header
         title={contentName || '(unnamed content)'}
         badge={contentTypeName}
@@ -237,6 +314,17 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName }) => 
       <div className="content-view-body">
         {renderContent()}
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <Menu
+          items={getContextMenuItems()}
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          onClose={handleCloseContextMenu}
+          onItemClick={handleMenuItemClick}
+          onContextMenu={handleContextMenu}
+        />
+      )}
     </div>
   )
 }

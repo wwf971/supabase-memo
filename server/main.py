@@ -7,7 +7,18 @@ from flask_cors import CORS
 from supabase import create_client, Client
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+
+# CORS configuration - allow ALL origins with credentials
+# Using a custom response handler instead of origins parameter
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    if origin:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+        response.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
+    return response
 
 # Configuration
 CONFIG = {}
@@ -375,6 +386,22 @@ def handle_path(path):
             data = result.get('data', {})
             content_type = data.get('content_type', 'text/plain')
             value = data.get('value', '')
+            is_binary = data.get('is_binary', False)
+            
+            # Handle binary data (images, PDFs, etc.)
+            if is_binary:
+                # Supabase returns BYTEA as hex-encoded string with \x prefix
+                # Storage format: Uint8Array → base64 → BYTEA (hex-encoded by Supabase)
+                if isinstance(value, str) and value.startswith('\\x'):
+                    import base64
+                    # Decode: hex → UTF-8 string (base64) → bytes
+                    hex_str = value[2:]  # Remove \x prefix
+                    base64_str = bytes.fromhex(hex_str).decode('utf-8')
+                    byte_data = base64.b64decode(base64_str)
+                    print(f"[BINARY] Decoded {len(byte_data)} bytes for {content_type}")
+                    return Response(byte_data, mimetype=content_type)
+                else:
+                    return Response(value, mimetype=content_type)
             
             # Return content based on content type
             if content_type.startswith('application/json'):
@@ -391,6 +418,25 @@ def handle_path(path):
     except Exception as e:
         print(f"[ERROR] Exception processing request: {e}")
         return jsonify({'error': 'Server error', 'message': str(e)}), 500
+
+@app.route('/ping')
+def ping():
+    """Ping endpoint to test server connection and token validity"""
+    token_valid = verify_token('GET')
+    
+    if not token_valid:
+        return jsonify({
+            'code': 1,
+            'message': 'Server is reachable but token is invalid'
+        })
+    
+    return jsonify({
+        'code': 0,
+        'message': 'Connection successful',
+        'data': {
+            'supabase_configured': supabase is not None
+        }
+    })
 
 @app.route('/api/test', methods=['POST'])
 def test_post():

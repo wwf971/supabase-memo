@@ -3,9 +3,9 @@ import {
   createUpdateFunction,
   createId09aeTable,
   createIdTypeTable,
-  createPathSegmentTable,
-  createPathSegmentRelationTypeTable,
-  createPathSegmentRelationTable,
+  createSegmentTable,
+  createSegmentRelationTypeTable,
+  createSegmentRelationTable,
   getCleanupSQL
 } from './coreSql'
 
@@ -135,7 +135,7 @@ export async function initializeDatabase(): Promise<{ code: number; message?: st
     }
     
     if (!check.data?.segment) {
-      sqlParts.push(createPathSegmentTable())
+      sqlParts.push(createSegmentTable())
     }
     
     const sql = sqlParts.join('\n\n')

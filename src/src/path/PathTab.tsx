@@ -77,6 +77,7 @@ const PathTab: React.FC<PathTabProps> = ({
   const [renamingClickPos, setRenamingClickPos] = useState<{ x: number; y: number } | null>(null)
   const [isRenamingInProgress, setIsRenamingInProgress] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<{ itemId: string; itemName: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   
   // Track previous path to detect actual changes (not just reference changes)
@@ -348,6 +349,53 @@ const PathTab: React.FC<PathTabProps> = ({
   }
 
   /**
+   * Handle quick segment creation
+   */
+  const handleQuickCreateSegment = async () => {
+    console.log(`[PathTab] Quick creating segment`)
+    
+    // Import necessary functions
+    const { issueId } = await import('../backend/id')
+    const { createSegment } = await import('./PathUtils')
+    const { createRelation } = await import('../backend/segment')
+    
+    // Generate new ID (type_code 1 for segment)
+    const idResult = await issueId(1)
+    if (idResult.code !== 0 || !idResult.data) {
+      setErrorMessage(`Failed to generate ID: ${idResult.message || 'Unknown error'}`)
+      return
+    }
+    
+    const newId = idResult.data
+    const defaultName = 'new_segment'
+    
+    const createResult = await createSegment(newId, defaultName)
+    
+    if (createResult.code !== 0) {
+      setErrorMessage(`Failed to create segment: ${createResult.message || 'Unknown error'}`)
+      return
+    }
+    
+    // Create relation to parent (current segment)
+    const parentId = data.currentPath[data.currentPath.length - 1]
+    const relationResult = await createRelation(parentId, newId, 0) // 0 = direct relation
+    
+    if (relationResult.code !== 0) {
+      setErrorMessage(`Failed to create relation: ${relationResult.message || 'Unknown error'}`)
+      return
+    }
+    
+    console.log(`[PathTab] ✅ Quick created segment ${newId}`)
+    
+    // Reload items to show the new segment
+    await loadItems()
+    
+    // Enter rename mode for the new item with full text selection
+    setRenamingItemId(newId)
+    setRenamingClickPos(null) // null means select all text
+  }
+
+  /**
    * Get context menu items based on context
    */
   const getContextMenuItems = (): MenuItem[] => {
@@ -387,6 +435,11 @@ const PathTab: React.FC<PathTabProps> = ({
             type: 'item',
             name: 'Rename',
             data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'segment' }
+          },
+          {
+            type: 'item',
+            name: 'Delete',
+            data: { action: 'delete', itemId: contextMenu.itemId, itemType: 'segment' }
           }
         ]
       }
@@ -418,6 +471,17 @@ const PathTab: React.FC<PathTabProps> = ({
               data: { action: 'createContent', contentType: 'file' }
             }
           ]
+        },
+        {
+          type: 'menu',
+          name: 'New (Quick)',
+          children: [
+            {
+              type: 'item',
+              name: 'Segment',
+              data: { action: 'createSegmentQuick' }
+            }
+          ]
         }
       ]
     }
@@ -438,6 +502,8 @@ const PathTab: React.FC<PathTabProps> = ({
       handleCreateFromMenu('path')
     } else if (action === 'createContent') {
       handleCreateFromMenu('content', contentType || 'text')
+    } else if (action === 'createSegmentQuick') {
+      handleQuickCreateSegment()
     } else if (action === 'rename' && itemId) {
       setRenamingItemId(itemId)
       setRenamingClickPos(contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null)
@@ -451,37 +517,63 @@ const PathTab: React.FC<PathTabProps> = ({
   }
 
   /**
-   * Handle delete content
+   * Handle delete (content or segment)
    */
   const handleDelete = (itemId: string) => {
     console.log(`[PathTab] handleDelete called for ${itemId}`)
-    const itemName = items.find(item => item.id === itemId)?.name || 'this item'
-    console.log(`[PathTab] Setting delete confirm modal for: "${itemName}"`)
+    const item = items.find(item => item.id === itemId)
+    const itemName = item?.name || 'this item'
+    const itemType = item?.type || 'content'
+    console.log(`[PathTab] Setting delete confirm modal for ${itemType}: "${itemName}"`)
     setDeleteConfirm({ itemId, itemName })
     handleCloseContextMenu()
   }
 
   /**
-   * Confirm and execute delete
+   * Confirm and execute delete (for list view)
    */
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return
     
     const { itemId } = deleteConfirm
+    const item = items.find(item => item.id === itemId)
+    const itemType = item?.type || 'content'
+    
     setDeleteConfirm(null)
+    setIsDeleting(true)
     
-    console.log(`[PathTab] Deleting content ${itemId}`)
+    console.log(`[PathTab] Deleting ${itemType} ${itemId}`)
     
-    const { deleteContent } = await import('../backend/content')
-    const result = await deleteContent(itemId)
-    
-    if (result.code === 0) {
-      console.log(`[PathTab] ✅ Deleted content ${itemId}`)
-      await loadItems()
+    let result
+    if (itemType === 'segment') {
+      // Delete segment using cache method
+      result = await segmentCache.deleteSegment(itemId)
+      
+      if (result.code === 0) {
+        console.log(`[PathTab] ✅ Deleted segment ${itemId}, ${result.data?.relationsDeleted || 0} relations removed`)
+        
+        // Invalidate caches for all affected parents
+        // Since we deleted all relations, we need to invalidate all parent caches
+        // For now, just reload items
+        await loadItems()
+      }
     } else {
+      // Delete content
+      const { deleteContent } = await import('../backend/content')
+      result = await deleteContent(itemId)
+      
+      if (result.code === 0) {
+        console.log(`[PathTab] ✅ Deleted content ${itemId}`)
+        await loadItems()
+      }
+    }
+    
+    if (result.code !== 0) {
       console.error(`[PathTab] ❌ Failed to delete: ${result.message}`)
       setErrorMessage(`Failed to delete: ${result.message}`)
     }
+    
+    setIsDeleting(false)
   }
 
   /**
@@ -544,49 +636,164 @@ const PathTab: React.FC<PathTabProps> = ({
   const lastType = lastId ? getItemType(lastId) : null
   const lastItemName = lastId ? getItemName(lastId) : null
   
+  /**
+   * Handle delete from ContentView
+   */
+  const handleDeleteFromContentView = async (contentId: string) => {
+    const itemName = lastItemName || '(unnamed content)'
+    setDeleteConfirm({ itemId: contentId, itemName })
+  }
+
+  /**
+   * Handle delete confirm - extended to handle navigation history cleanup
+   */
+  const handleDeleteConfirmFromContentView = async () => {
+    if (!deleteConfirm) return
+    
+    const { itemId } = deleteConfirm
+    const isContentView = lastType === 'content' && lastId === itemId
+    
+    setDeleteConfirm(null)
+    
+    console.log(`[PathTab] Deleting content ${itemId}`)
+    
+    const { deleteContent } = await import('../backend/content')
+    const result = await deleteContent(itemId)
+    
+    if (result.code === 0) {
+      console.log(`[PathTab] ✅ Deleted content ${itemId}`)
+      
+      // If deleted from ContentView, handle navigation history cleanup
+      if (isContentView) {
+        console.log(`[PathTab] Cleaning up navigation history after ContentView delete`)
+        
+        // Remove current path from history
+        const newHistory = data.history.filter((_, idx) => idx !== data.historyPointer)
+        
+        // Determine new history pointer and path
+        let newPointer: number
+        let newPath: string[]
+        
+        if (newHistory.length === 0) {
+          // No history left, go to root
+          newHistory.push([])
+          newPointer = 0
+          newPath = []
+          console.log(`[PathTab] No history left, navigating to root`)
+        } else if (data.historyPointer > 0) {
+          // Go to previous path in history
+          newPointer = data.historyPointer - 1
+          newPath = newHistory[newPointer]
+          console.log(`[PathTab] Navigating to previous path in history (pointer: ${newPointer})`)
+        } else {
+          // We were at the first item, stay at first (which is now the old second)
+          newPointer = 0
+          newPath = newHistory[0]
+          console.log(`[PathTab] Staying at first history item`)
+        }
+        
+        // Navigate to the new path
+        onDataChange({
+          ...data,
+          currentPath: newPath,
+          history: newHistory,
+          historyPointer: newPointer,
+          canNaviBack: newPointer > 0,
+          canNaviForward: newPointer < newHistory.length - 1
+        })
+      } else {
+        // Regular delete from list view
+        await loadItems()
+      }
+    } else {
+      console.error(`[PathTab] ❌ Failed to delete: ${result.message}`)
+      setErrorMessage(`Failed to delete: ${result.message}`)
+    }
+  }
+
   // If viewing content, show ContentView
   if (lastType === 'content' && lastId) {
     return (
-      <div className="path-tab">
-        <div className="path-tab-header">
-          <div className="path-tab-nav-btns">
-            <button
-              onClick={onNaviBack}
-              disabled={!data.canNaviBack}
-              className="nav-btn"
-              title="Go back"
-            >
-              ◀
-            </button>
-            <button
-              onClick={onNaviForward}
-              disabled={!data.canNaviForward}
-              className="nav-btn"
-              title="Go forward"
-            >
-              ▶
-            </button>
-            <button
-              onClick={handleNaviUp}
-              disabled={data.currentPath.length === 0}
-              className="nav-btn nav-btn-up"
-              title="Go up"
-            >
-              ▲
-            </button>
+      <>
+        <div className="path-tab">
+          <div className="path-tab-header">
+            <div className="path-tab-nav-btns">
+              <button
+                onClick={onNaviBack}
+                disabled={!data.canNaviBack}
+                className="nav-btn"
+                title="Go back"
+              >
+                ◀
+              </button>
+              <button
+                onClick={onNaviForward}
+                disabled={!data.canNaviForward}
+                className="nav-btn"
+                title="Go forward"
+              >
+                ▶
+              </button>
+              <button
+                onClick={handleNaviUp}
+                disabled={data.currentPath.length === 0}
+                className="nav-btn nav-btn-up"
+                title="Go up"
+              >
+                ▲
+              </button>
+            </div>
+            <PathBar
+              segments={segments}
+              onPathSegClicked={handlePathSegClick}
+            />
           </div>
-          <PathBar
-            segments={segments}
-            onPathSegClicked={handlePathSegClick}
-          />
+          <div className="path-tab-content">
+            <ContentView 
+              contentId={lastId}
+              contentName={lastItemName || ''}
+              onDelete={handleDeleteFromContentView}
+            />
+          </div>
         </div>
-        <div className="path-tab-content">
-          <ContentView 
-            contentId={lastId}
-            contentName={lastItemName || ''}
-          />
-        </div>
-      </div>
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirm && (
+          <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">Confirm Delete</div>
+              <div className="modal-body">
+                Are you sure you want to delete <strong>"{deleteConfirm.itemName || '(unnamed item)'}"</strong>?
+                <br />
+                This action cannot be undone.
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>
+                  Cancel
+                </button>
+                <button type="button" className="modal-btn modal-btn-danger" onClick={handleDeleteConfirmFromContentView}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message Modal */}
+        {errorMessage && (
+          <div className="modal-overlay" onClick={() => setErrorMessage(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">Error</div>
+              <div className="modal-body">{errorMessage}</div>
+              <div className="modal-footer">
+                <button type="button" className="modal-btn modal-btn-primary" onClick={() => setErrorMessage(null)}>
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     )
   }
   

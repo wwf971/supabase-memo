@@ -160,3 +160,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;`
 
+export const createDeleteSegmentFunction = () => `-- Function: Delete segment and all its relations
+-- Deletes a segment and removes all relations where it appears as parent or child
+-- Returns the number of relations deleted
+CREATE OR REPLACE FUNCTION delete_segment_with_relations(segment_id_to_delete TEXT)
+RETURNS TABLE(
+  relations_deleted INTEGER,
+  segment_deleted BOOLEAN
+) AS $$
+DECLARE
+  rel_count INTEGER;
+  seg_exists BOOLEAN;
+BEGIN
+  -- Check if segment exists
+  SELECT EXISTS(SELECT 1 FROM segment WHERE id = segment_id_to_delete) INTO seg_exists;
+  
+  IF NOT seg_exists THEN
+    RETURN QUERY SELECT 0, FALSE;
+    RETURN;
+  END IF;
+  
+  -- Delete all relations where this segment is segment_1 (parent) or segment_2 (child)
+  DELETE FROM segment_relation 
+  WHERE segment_1 = segment_id_to_delete OR segment_2 = segment_id_to_delete;
+  
+  GET DIAGNOSTICS rel_count = ROW_COUNT;
+  
+  -- Delete the segment itself
+  DELETE FROM segment WHERE id = segment_id_to_delete;
+  
+  RETURN QUERY SELECT rel_count, TRUE;
+END;
+$$ LANGUAGE plpgsql;`
+

@@ -4,13 +4,13 @@ import SegList, { ListItem } from './SegList'
 import SegSelect, { SelectItem } from './SegSelect'
 import { getSegments, getPathSegment } from './pathUtils'
 import { issueId } from '../backend/id'
-import { createPathSegment } from './pathUtils'
+import { createSegment } from './pathUtils'
 import { createRelation, SegmentRelationType } from '../backend/segment'
 import { createContent } from '../backend/content'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
 import { segmentCache, segChildrenCache, contentBinaryCache, PathSegmentCache } from '../backend/cache'
 import ContentUpload from '../view/ContentUpload'
-import { detectFileType, isFileTypeSupported } from '../utils/fileTypeDetector'
+import { detectFileType, isFileTypeSupported } from '../utils/type'
 import './SegCreate.css'
 
 interface SegCreateProps {
@@ -215,7 +215,7 @@ const SegCreate: React.FC<SegCreateProps> = ({
 
       // Create the segment/content
       if (segmentType === 'path') {
-        const createResult = await createPathSegment(newId, name)
+        const createResult = await createSegment(newId, name)
         if (createResult.code !== 0) {
           setError(createResult.message || 'Failed to create segment')
           setIsCreating(false)

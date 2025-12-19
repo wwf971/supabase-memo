@@ -9,6 +9,8 @@ interface RequestLog {
   url: string
   status: number | null
   response: string
+  contentType?: string // Store Content-Type header
+  isImage?: boolean // Flag for image responses
   error?: string
 }
 
@@ -43,7 +45,17 @@ const TestPythonServer: React.FC = () => {
         },
       })
 
-      const data = await response.text()
+      const contentType = response.headers.get('Content-Type') || ''
+      const isImage = contentType.startsWith('image/')
+      
+      let data: string
+      if (isImage) {
+        // For images, convert to blob URL
+        const blob = await response.blob()
+        data = URL.createObjectURL(blob)
+      } else {
+        data = await response.text()
+      }
       
       addLog({
         timestamp,
@@ -51,6 +63,8 @@ const TestPythonServer: React.FC = () => {
         url,
         status: response.status,
         response: data,
+        contentType,
+        isImage,
       })
     } catch (error: any) {
       addLog({
@@ -125,7 +139,10 @@ const TestPythonServer: React.FC = () => {
   }
 
   const isImageResponse = (log: RequestLog) => {
-    // Check if response is base64 image data
+    // Check if it's flagged as image or is base64 image data
+    if (log.isImage) {
+      return true
+    }
     if (log.response && log.response.startsWith('data:image/')) {
       return true
     }
@@ -313,10 +330,13 @@ const TestPythonServer: React.FC = () => {
                     <>
                       <div className="detail-info">
                         <div><strong>Status:</strong> {selectedLog.status}</div>
+                        {selectedLog.contentType && (
+                          <div><strong>Content-Type:</strong> {selectedLog.contentType}</div>
+                        )}
                       </div>
                       {isImageResponse(selectedLog) ? (
                         <div className="response-image">
-                          <img src={selectedLog.response} alt="Response" />
+                          <img src={selectedLog.response} alt="Response" style={{ maxWidth: '100%', height: 'auto' }} />
                         </div>
                       ) : (
                         <div className="response-body">

@@ -46,75 +46,29 @@ const PdfView: React.FC<PdfViewProps> = ({ contentId, contentName, pdfData, cont
             binaryArray = new Uint8Array(binaryData.data)
           } else if (typeof binaryData.data === 'string') {
             const str = binaryData.data
-            console.log('[PdfView] String format check:')
-            console.log('  - Length:', str.length)
-            console.log('  - First 2 char codes:', str.charCodeAt(0), str.charCodeAt(1))
-            console.log('  - First 20 chars:', str.substring(0, 20))
-            console.log('  - Is hex encoded?', str.charCodeAt(0) === 92 && str.charCodeAt(1) === 120)
             
-            // Try base64 decode first (new format)
-            try {
-              const binaryString = atob(str)
+            // Supabase returns BYTEA as hex-encoded string with \x prefix
+            // Storage format: Uint8Array → base64 → BYTEA (hex-encoded by Supabase)
+            if (str.charCodeAt(0) === 92 && str.charCodeAt(1) === 120) { // '\x'
+              // Decode: hex → UTF-8 string (base64) → bytes
+              const hexStr = str.substring(2) // Remove \x prefix
+              const base64Bytes = new Uint8Array(hexStr.length / 2)
+              for (let i = 0; i < hexStr.length; i += 2) {
+                base64Bytes[i / 2] = parseInt(hexStr.substring(i, i + 2), 16)
+              }
+              const base64Str = new TextDecoder().decode(base64Bytes)
+              
+              // Decode base64 to binary
+              const binaryString = atob(base64Str)
               binaryArray = new Uint8Array(binaryString.length)
               for (let i = 0; i < binaryString.length; i++) {
                 binaryArray[i] = binaryString.charCodeAt(i)
               }
-              console.log('[PdfView] ✅ Decoded base64 to', binaryArray.length, 'bytes, first 10:', Array.from(binaryArray.slice(0, 10)))
-            } catch (base64Error) {
-              console.log('[PdfView] ❌ Base64 decode failed:', base64Error)
-              // Fallback: Supabase hex-encodes BYTEA data
-              if (str.charCodeAt(0) === 92 && str.charCodeAt(1) === 120) { // '\x'
-                console.log('[PdfView] ⚠️ Base64 failed, hex-encoded format detected')
-                const hexStr = str.substring(2) // Remove \x prefix
-                
-                // Hex decode to get the actual string
-                const decodedBytes = new Uint8Array(hexStr.length / 2)
-                for (let i = 0; i < hexStr.length; i += 2) {
-                  decodedBytes[i / 2] = parseInt(hexStr.substring(i, i + 2), 16)
-                }
-                
-                // Convert to string
-                const decodedStr = new TextDecoder().decode(decodedBytes)
-                console.log('[PdfView] Hex-decoded string first 100 chars:', decodedStr.substring(0, 100))
-                
-                // Check if it's base64 (new format) or JSON (old corrupted format)
-                if (decodedStr.startsWith('{') && decodedStr.includes('"0"')) {
-                  // Old corrupted JSON format: {"0":37,"1":80,...}
-                  console.log('[PdfView] Detected old JSON format')
-                  try {
-                    const jsonObj = JSON.parse(decodedStr)
-                    const byteCount = Object.keys(jsonObj).length
-                    binaryArray = new Uint8Array(byteCount)
-                    for (let i = 0; i < byteCount; i++) {
-                      binaryArray[i] = jsonObj[i.toString()]
-                    }
-                    console.log('[PdfView] ✅ Decoded from JSON to', binaryArray.length, 'bytes')
-                  } catch (jsonError) {
-                    setError(`Failed to parse JSON: ${jsonError}`)
-                    setLoading(false)
-                    return
-                  }
-                } else {
-                  // New format: hex-encoded base64
-                  console.log('[PdfView] Detected base64 inside hex')
-                  try {
-                    const binaryString = atob(decodedStr)
-                    binaryArray = new Uint8Array(binaryString.length)
-                    for (let i = 0; i < binaryString.length; i++) {
-                      binaryArray[i] = binaryString.charCodeAt(i)
-                    }
-                    console.log('[PdfView] ✅ Decoded hex→base64 to', binaryArray.length, 'bytes, first 10:', Array.from(binaryArray.slice(0, 10)))
-                  } catch (atobError) {
-                    setError(`Failed to decode base64 from hex: ${atobError}`)
-                    setLoading(false)
-                    return
-                  }
-                }
-              } else {
-                setError(`Failed to decode binary data: ${base64Error}`)
-                setLoading(false)
-                return
-              }
+              console.log('[PdfView] ✅ Decoded to', binaryArray.length, 'bytes')
+            } else {
+              setError('Unexpected data format')
+              setLoading(false)
+              return
             }
           } else {
             setError(`Unexpected data type: ${typeof binaryData.data}`)

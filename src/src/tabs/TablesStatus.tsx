@@ -3,9 +3,9 @@ import {
   createUpdateFunction,
   createId09aeTable,
   createIdTypeTable,
-  createPathSegmentTable,
-  createPathSegmentRelationTypeTable,
-  createPathSegmentRelationTable
+  createSegmentTable,
+  createSegmentRelationTypeTable,
+  createSegmentRelationTable
 } from '../backend/coreSql'
 import {
   createContentTypeTable,
@@ -14,7 +14,8 @@ import {
 } from '../backend/contentSql'
 import {
   createGetContentByPathFunction,
-  createGetSegmentChildrenFunction
+  createGetSegmentChildrenFunction,
+  createDeleteSegmentFunction
 } from '../backend/functionSql'
 import { getSupabaseClient } from '../backend/supabase'
 import TableManage from './TableManage'
@@ -36,17 +37,17 @@ const tableConfigs = [
   {
     name: 'segment',
     description: 'Hierarchical path segment for content organization (e.g., /aa/bb/cc/dd)',
-    createSQL: () => `${createUpdateFunction()}\n\n${createPathSegmentTable()}`
+    createSQL: () => `${createUpdateFunction()}\n\n${createSegmentTable()}`
   },
   {
     name: 'segment_relation_type',
     description: 'Segment relation type mappings (0=direct parent/child, 1=indirect)',
-    createSQL: () => createPathSegmentRelationTypeTable()
+    createSQL: () => createSegmentRelationTypeTable()
   },
   {
     name: 'segment_relation',
     description: 'Many-to-many relationships between path segments and content',
-    createSQL: () => createPathSegmentRelationTable()
+    createSQL: () => createSegmentRelationTable()
   },
   {
     name: 'content_type',
@@ -78,6 +79,12 @@ const functionConfigs = [
     description: 'Get segment children by path array - returns list of children (segments and content) for a given path',
     createSQL: createGetSegmentChildrenFunction(),
     dropSQL: 'DROP FUNCTION IF EXISTS get_segment_children(TEXT[]);'
+  },
+  {
+    name: 'delete_segment_with_relations',
+    description: 'Delete segment and all its relations - removes segment and all relations where it appears as parent or child',
+    createSQL: createDeleteSegmentFunction(),
+    dropSQL: 'DROP FUNCTION IF EXISTS delete_segment_with_relations(TEXT);'
   }
 ]
 
