@@ -1,12 +1,13 @@
 import { getSupabaseClient } from './supabase'
-import { segPathCache, segChildrenCache } from './cache'
+import { segPathCache, segChildrenCache, segRelationCache } from '../cache/cache'
 
 /**
  * Segment relation types
  */
 export enum SegmentRelationType {
   PARENT_CHILD_DIRECT = 0,
-  PARENT_CHILD_INDIRECT = 1
+  PARENT_CHILD_INDIRECT = 1,
+  PARENT_CHILD_BIND = 2
 }
 
 export interface SegmentRelation {
@@ -29,26 +30,23 @@ export async function getParents(
 ): Promise<{ code: number; message?: string; data?: string[] }> {
   try {
     const startTime = performance.now()
-    console.log(`[segment] 🔍 Getting parents for ${id} (relation: ${relationType})...`)
     
-    const client = getSupabaseClient()
-
-    // Query where id is segment_2 (child), get segment_1 (parent)
-    const dbStart = performance.now()
-    const { data, error } = await client
-      .from('segment_relation')
-      .select('segment_1')
-      .eq('type', relationType)
-      .eq('segment_2', id)
-
-    if (error) {
-      console.log(`[segment] ❌ Failed to get parents (${(performance.now() - startTime).toFixed(2)}ms)`)
-      return { code: -5, message: error.message }
+    // Check cache first
+    if (segRelationCache.hasParents(id, relationType)) {
+      const parents = segRelationCache.getParents(id, relationType) || []
+      console.log(`[segment] ✓ Parents found in CACHE for ${id} (relation: ${relationType}): ${parents.length} parents (${(performance.now() - startTime).toFixed(2)}ms)`)
+      return { code: 0, data: parents }
     }
-
-    const parents = data?.map((row: any) => row.segment_1) || []
-    const dbTime = (performance.now() - dbStart).toFixed(2)
-    console.log(`[segment] ✅ Got ${parents.length} parents (DB: ${dbTime}ms, Total: ${(performance.now() - startTime).toFixed(2)}ms)`)
+    
+    // Not in cache, load all relations as child
+    console.log(`[segment] 🔍 Cache MISS for parents of ${id}, loading from DB...`)
+    const loadResult = await segRelationCache.loadAsChild(id)
+    if (loadResult.code !== 0) {
+      return { code: loadResult.code, message: loadResult.message }
+    }
+    
+    const parents = segRelationCache.getParents(id, relationType) || []
+    console.log(`[segment] ✅ Got ${parents.length} parents (DB + Cache, Total: ${(performance.now() - startTime).toFixed(2)}ms)`)
     
     return { code: 0, data: parents }
   } catch (err: any) {
@@ -70,26 +68,23 @@ export async function getChildren(
 ): Promise<{ code: number; message?: string; data?: string[] }> {
   try {
     const startTime = performance.now()
-    console.log(`[segment] 🔍 Getting children for ${id} (relation: ${relationType})...`)
     
-    const client = getSupabaseClient()
-
-    // Query where id is segment_1 (parent), get segment_2 (child)
-    const dbStart = performance.now()
-    const { data, error } = await client
-      .from('segment_relation')
-      .select('segment_2')
-      .eq('type', relationType)
-      .eq('segment_1', id)
-
-    if (error) {
-      console.log(`[segment] ❌ Failed to get children (${(performance.now() - startTime).toFixed(2)}ms)`)
-      return { code: -5, message: error.message }
+    // Check cache first
+    if (segRelationCache.hasChildren(id, relationType)) {
+      const children = segRelationCache.getChildren(id, relationType) || []
+      console.log(`[segment] ✓ Children found in CACHE for ${id} (relation: ${relationType}): ${children.length} children (${(performance.now() - startTime).toFixed(2)}ms)`)
+      return { code: 0, data: children }
     }
-
-    const children = data?.map((row: any) => row.segment_2) || []
-    const dbTime = (performance.now() - dbStart).toFixed(2)
-    console.log(`[segment] ✅ Got ${children.length} children (DB: ${dbTime}ms, Total: ${(performance.now() - startTime).toFixed(2)}ms)`)
+    
+    // Not in cache, load all relations as parent
+    console.log(`[segment] 🔍 Cache MISS for children of ${id}, loading from DB...`)
+    const loadResult = await segRelationCache.loadAsParent(id)
+    if (loadResult.code !== 0) {
+      return { code: loadResult.code, message: loadResult.message }
+    }
+    
+    const children = segRelationCache.getChildren(id, relationType) || []
+    console.log(`[segment] ✅ Got ${children.length} children (DB + Cache, Total: ${(performance.now() - startTime).toFixed(2)}ms)`)
     
     return { code: 0, data: children }
   } catch (err: any) {
@@ -128,10 +123,12 @@ export async function createRelation(
       return { code: -5, message: error.message }
     }
 
-    // Invalidate relevant caches
+    // Add to relation cache (also invalidates path cache internally)
+    segRelationCache.addRelation(parentId, childId, relationType)
+    
+    // Invalidate old children cache (for backward compatibility)
     segChildrenCache.delete(parentId, relationType)
-    segPathCache.delete(childId) // Path to root changed for child
-    console.log(`[segment] Invalidated caches: children(${parentId}, ${relationType}), path(${childId})`)
+    console.log(`[segment] Created relation and updated caches: ${parentId} -> ${childId} (type ${relationType})`)
 
     return { code: 0, data }
   } catch (err: any) {
@@ -167,10 +164,12 @@ export async function deleteRelation(
       return { code: -5, message: error.message }
     }
 
-    // Invalidate relevant caches
+    // Remove from relation cache (also invalidates path cache internally)
+    segRelationCache.removeRelation(parentId, childId, relationType)
+    
+    // Invalidate old children cache (for backward compatibility)
     segChildrenCache.delete(parentId, relationType)
-    segPathCache.delete(childId) // Path to root changed for child
-    console.log(`[segment] Invalidated caches after deletion: children(${parentId}, ${relationType}), path(${childId})`)
+    console.log(`[segment] Deleted relation and updated caches: ${parentId} -> ${childId} (type ${relationType})`)
 
     return { code: 0 }
   } catch (err: any) {

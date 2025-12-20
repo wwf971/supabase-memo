@@ -75,6 +75,7 @@
 .table-card-actions {
   padding: 8px 12px;
   display: flex;
+  align-items: flex-start;
   gap: 8px;
 }
 

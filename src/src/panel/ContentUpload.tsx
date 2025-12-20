@@ -8,7 +8,9 @@ interface ContentUploadProps {
   accept?: string  // e.g., "image/*" or ".pdf,.doc"
   onFileSelect: (file: File) => void
   currentFile?: File | null
-  uploadProgress?: number  // 0-100
+  uploadCurrentStep?: number
+  uploadTotalSteps?: number
+  uploadStepLabel?: string
   uploadStatus?: 'uploading' | 'success' | 'error'
 }
 
@@ -20,7 +22,9 @@ const ContentUpload: React.FC<ContentUploadProps> = ({
   accept = mode === 'image' ? 'image/*' : '*',
   onFileSelect,
   currentFile,
-  uploadProgress,
+  uploadCurrentStep = 0,
+  uploadTotalSteps = 1,
+  uploadStepLabel = 'Uploading',
   uploadStatus
 }) => {
   const [isDragging, setIsDragging] = useState(false)
@@ -118,8 +122,13 @@ const ContentUpload: React.FC<ContentUploadProps> = ({
       onDrop={handleDrop}
       onClick={handleClick}
     >
-      {uploadProgress !== undefined && uploadStatus && (
-        <ContentUploadProgress progress={uploadProgress} status={uploadStatus} />
+      {uploadStatus && uploadCurrentStep > 0 && (
+        <ContentUploadProgress 
+          currentStep={uploadCurrentStep} 
+          totalSteps={uploadTotalSteps}
+          stepLabel={uploadStepLabel}
+          status={uploadStatus} 
+        />
       )}
       
       <input

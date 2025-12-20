@@ -3,7 +3,7 @@
  */
 
 import { getSupabaseClient } from './supabase'
-import { segmentCache, contentCache, segChildrenCache, PathSegmentCache } from './cache'
+import { segmentCache, contentCache, segChildrenCache, PathSegmentCache } from '../cache/cache'
 import { getChildren, getDirectParent, SegmentRelationType } from './segment'
 import { formatSegmentPath, formatContentPath } from '../path/PathUtils'
 import { ListItem } from '../path/SegList'
@@ -84,6 +84,18 @@ export async function loadRootItems(): Promise<{ code: number; data?: ListItem[]
 export async function loadChildrenItems(parentId: string): Promise<{ code: number; data?: ListItem[]; message?: string }> {
   try {
     const newItems: ListItem[] = []
+    const addedIds = new Set<string>() // Track which IDs we've already added to prevent duplicates
+    const relationTypesMap = new Map<string, number[]>() // Track all relationship types per child
+
+    // Get bound content (check cache first) - highest priority
+    let boundIds: string[] = []
+    if (segChildrenCache.has(parentId, SegmentRelationType.PARENT_CHILD_BIND)) {
+      boundIds = segChildrenCache.get(parentId, SegmentRelationType.PARENT_CHILD_BIND) || []
+    } else {
+      const boundResult = await getChildren(parentId, SegmentRelationType.PARENT_CHILD_BIND)
+      boundIds = boundResult.code === 0 ? (boundResult.data || []) : []
+      segChildrenCache.set(parentId, SegmentRelationType.PARENT_CHILD_BIND, boundIds)
+    }
 
     // Get direct children (check cache first)
     let directIds: string[] = []
@@ -105,64 +117,66 @@ export async function loadChildrenItems(parentId: string): Promise<{ code: numbe
       segChildrenCache.set(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT, indirectIds)
     }
 
-    // Load direct children details (can be segments or content)
+    // Build relationship types map
+    for (const childId of boundIds) {
+      if (!relationTypesMap.has(childId)) relationTypesMap.set(childId, [])
+      relationTypesMap.get(childId)!.push(SegmentRelationType.PARENT_CHILD_BIND)
+    }
     for (const childId of directIds) {
-      const segData = await segmentCache.get(childId)
-      
-      if (segData) {
-        const contentData = await contentCache.get(childId)
-        const itemType = contentData ? 'content' : 'segment'
-        
-        // Calculate path
-        let pathStr = '/'
-        if (itemType === 'segment') {
-          pathStr = await formatSegmentPath(childId)
-        } else {
-          const directParentResult = await getDirectParent(childId)
-          const parentIdForPath = directParentResult.code === 0 && directParentResult.data ? directParentResult.data : undefined
-          pathStr = await formatContentPath(childId, segData.name, parentIdForPath)
-        }
-        
-        newItems.push({
-          id: childId,
-          name: segData.name,
-          type: itemType,
-          relationToDirect: true,
-          path: pathStr,
-          value: contentData?.value || undefined,
-          contentType: contentData?.type_code || undefined
-        })
-      }
+      if (!relationTypesMap.has(childId)) relationTypesMap.set(childId, [])
+      relationTypesMap.get(childId)!.push(SegmentRelationType.PARENT_CHILD_DIRECT)
+    }
+    for (const childId of indirectIds) {
+      if (!relationTypesMap.has(childId)) relationTypesMap.set(childId, [])
+      relationTypesMap.get(childId)!.push(SegmentRelationType.PARENT_CHILD_INDIRECT)
     }
 
-    // Load indirect children details (can be segments or content)
-    for (const childId of indirectIds) {
-      const segData = await segmentCache.get(childId)
+    // Process all children (bind has highest priority for display)
+    // Priority order: bound > direct > indirect
+    const allChildIds = [...boundIds, ...directIds, ...indirectIds]
+    
+    for (const childId of allChildIds) {
+      // Skip if already added
+      if (addedIds.has(childId)) continue
       
-      if (segData) {
-        const contentData = await contentCache.get(childId)
-        const itemType = contentData ? 'content' : 'segment'
-        
-        // Calculate path
-        let pathStr = '/'
-        if (itemType === 'segment') {
-          pathStr = await formatSegmentPath(childId)
-        } else {
-          const directParentResult = await getDirectParent(childId)
-          const parentIdForPath = directParentResult.code === 0 && directParentResult.data ? directParentResult.data : undefined
-          pathStr = await formatContentPath(childId, segData.name, parentIdForPath)
-        }
-        
-        newItems.push({
-          id: childId,
-          name: segData.name,
-          type: itemType,
-          relationToDirect: false,
-          path: pathStr,
-          value: contentData?.value || undefined,
-          contentType: contentData?.type_code
-        })
+      const segData = await segmentCache.get(childId)
+      if (!segData) continue
+      
+      // Determine relationship types
+      const relationTypes = relationTypesMap.get(childId) || []
+      const isBind = relationTypes.includes(SegmentRelationType.PARENT_CHILD_BIND)
+      
+      // Only fetch content if:
+      // 1. Child is bound (bind relationships are always to content), OR
+      // 2. Child is already in content cache
+      const shouldFetchContent = isBind || contentCache.has(childId)
+      
+      const contentData = shouldFetchContent ? await contentCache.get(childId) : null
+      const itemType = contentData ? 'content' : 'segment'
+      
+      // Calculate path
+      let pathStr = '/'
+      if (itemType === 'segment') {
+        pathStr = await formatSegmentPath(childId)
+      } else if (isBind) {
+        // Bound content uses parent's path (without trailing slash)
+        pathStr = await formatContentPath(childId, segData.name, parentId)
+      } else {
+        const directParentResult = await getDirectParent(childId)
+        const parentIdForPath = directParentResult.code === 0 && directParentResult.data ? directParentResult.data : undefined
+        pathStr = await formatContentPath(childId, segData.name, parentIdForPath)
       }
+      
+      newItems.push({
+        id: childId,
+        name: segData.name,
+        type: itemType,
+        relationTypes,  // All relationship types (0=direct, 1=indirect, 2=bind)
+        path: pathStr,
+        value: contentData?.value || undefined,
+        contentType: contentData?.type_code || undefined
+      })
+      addedIds.add(childId)
     }
 
     return { code: 0, data: newItems }

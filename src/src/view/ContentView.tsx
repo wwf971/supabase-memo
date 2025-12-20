@@ -12,12 +12,15 @@ interface ContentViewProps {
   contentId: string
   contentName: string
   onDelete?: (contentId: string) => void
+  onModifyParent?: (contentId: string) => void
 }
 
 /**
  * ContentView - Display and edit content details based on content type
  */
-const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName, onDelete }) => {
+const ContentView: React.FC<ContentViewProps> = ({
+  contentId, contentName, onDelete, onModifyParent
+}) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [contentData, setContentData] = useState<any>(null)
@@ -130,6 +133,11 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName, onDel
     return [
       {
         type: 'item',
+        name: 'Modify Parent',
+        data: { action: 'modifyParent' }
+      },
+      {
+        type: 'item',
         name: 'Delete',
         data: { action: 'delete' }
       }
@@ -144,6 +152,8 @@ const ContentView: React.FC<ContentViewProps> = ({ contentId, contentName, onDel
     
     if (action === 'delete') {
       onDelete?.(contentId)
+    } else if (action === 'modifyParent') {
+      onModifyParent?.(contentId)
     }
     
     handleCloseContextMenu()

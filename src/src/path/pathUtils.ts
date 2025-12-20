@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../backend/supabase'
-import { segmentCache } from '../backend/cache'
-import { getPathToRoot } from '../backend/segment'
+import { segmentCache, segRelationCache } from '../cache/cache'
+import { getPathToRoot, getDirectParent } from '../backend/segment'
 
 export interface PathSegment {
   id: string
@@ -38,7 +38,7 @@ export async function getSegments(): Promise<{ code: number; message?: string; d
 /**
  * Create a new path segment
  */
-export async function createPathSegment(
+export async function createSegment(
   id: string,
   name: string
 ): Promise<{ code: number; message?: string; data?: PathSegment }> {
@@ -169,32 +169,53 @@ export async function formatSegmentPath(segmentId: string): Promise<string> {
 
 /**
  * Format path for a content item
- * @param _contentId - The content ID (unused, kept for API consistency)
- * @param contentName - The content name (empty string for segment-bound content)
- * @param parentSegmentId - The parent segment ID (required for content)
- * @returns Path string in format: /name1/name2/name3/contentName or /name1/name2/name3 (for empty name)
+ * @param contentId - The content ID
+ * @param contentName - The content name
+ * @param parentSegmentId - The parent segment ID (optional, will be detected if not provided)
+ * @returns Path string in format: /name1/name2/name3/contentName or /name1/name2/name3 (for bound content)
  */
 export async function formatContentPath(
-  _contentId: string,
+  contentId: string,
   contentName: string,
   parentSegmentId?: string
 ): Promise<string> {
-  // If content has empty name, it's bound to its parent segment
-  // Path should be parent's path without trailing slash: /name1/name2/name3
-  if (contentName === '' && parentSegmentId) {
-    const parentPath = await formatSegmentPath(parentSegmentId)
-    // Remove trailing slash
-    return parentPath.endsWith('/') ? parentPath.slice(0, -1) : parentPath
+  // Check if this content has a bind relationship using cache
+  const bindParent = await segRelationCache.getBindParent(contentId)
+  
+  if (bindParent) {
+    // Content is bound to a segment, path is segment path without trailing slash
+    const segPath = await formatSegmentPath(bindParent)
+    return segPath.endsWith('/') ? segPath.slice(0, -1) : segPath
+  }
+  
+  // Not a bound content, handle as regular child content
+  // Determine parent if not provided
+  let effectiveParentId = parentSegmentId
+  if (!effectiveParentId) {
+    const directParent = await getDirectParent(contentId)
+    if (directParent.code === 0 && directParent.data) {
+      effectiveParentId = directParent.data
+    }
   }
   
   // If content has a name, append it to parent's path
-  // Path format: /name1/name2/name3/contentName (no trailing slash)
-  if (parentSegmentId) {
-    const parentPath = await formatSegmentPath(parentSegmentId)
-    return parentPath + contentName
+  if (contentName && effectiveParentId) {
+    const parentSegPath = await formatSegmentPath(effectiveParentId)
+    return parentSegPath + contentName
   }
   
-  // Fallback: content at root with name
-  return '/' + contentName
+  // Fallback cases
+  if (contentName) {
+    return '/' + contentName
+  }
+  
+  // Content with no name and no bind relationship - shouldn't happen in new system
+  // But keep for backward compatibility
+  if (effectiveParentId) {
+    const parentSegPath = await formatSegmentPath(effectiveParentId)
+    return parentSegPath.endsWith('/') ? parentSegPath.slice(0, -1) : parentSegPath
+  }
+  
+  return '/'
 }
 

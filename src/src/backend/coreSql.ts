@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS segment_relation_type (
 
 INSERT INTO segment_relation_type (type_code, type_name, description) VALUES
   (0, 'parent_child_direct', 'Direct parent-child relationship (segment_1 is parent, segment_2 is child). Each segment has ONE direct parent.'),
-  (1, 'parent_child_indirect', 'Indirect parent-child relationship (many-to-many). For organization and alternative paths.')
+  (1, 'parent_child_indirect', 'Indirect parent-child relationship (many-to-many). For organization and alternative paths.'),
+  (2, 'parent_child_bind', 'Parent binds to content (segment_1 is segment ID, segment_2 is content ID). Each segment can have ONE bound content.')
 ON CONFLICT (type_code) DO NOTHING;
 `.trim()
 }
@@ -133,9 +134,9 @@ export function createSegmentRelationTable(): string {
 -- segment_1 and segment_2 can reference either segment table OR content table
 CREATE TABLE IF NOT EXISTS segment_relation (
   id SERIAL PRIMARY KEY,
-  type INTEGER NOT NULL,               -- Relationship type (0=direct parent/child, 1=indirect)
-  segment_1 TEXT NOT NULL,             -- First entity (parent in type 0)
-  segment_2 TEXT NOT NULL,             -- Second entity (child in type 0)
+  type INTEGER NOT NULL,               -- Relationship type (0=direct parent/child, 1=indirect, 2=parent binds content)
+  segment_1 TEXT NOT NULL,             -- First entity (parent in type 0/1/2)
+  segment_2 TEXT NOT NULL,             -- Second entity (child segment in type 0/1, bound content in type 2)
   created_at TIMESTAMP DEFAULT NOW(),
   metadata JSONB DEFAULT '{}'::jsonb,
   

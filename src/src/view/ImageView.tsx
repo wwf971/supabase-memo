@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react'
-import { contentBinaryCache } from '../backend/cache'
+import { contentBinaryCache } from '../cache/cache'
 import Header from './Header'
 import './ImageView.css'
 

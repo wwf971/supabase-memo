@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react'
-import { segmentCache, segChildrenCache, contentCache, PathSegmentCache } from '../backend/cache'
+import { segmentCache, segChildrenCache, contentCache, PathSegmentCache } from '../cache/cache'
 import { getSupabaseClient } from '../backend/supabase'
 import { getChildren, SegmentRelationType, getPathToRoot, getDirectParent } from '../backend/segment'
 import { getPathSegment, getSegments, formatSegmentPath, formatContentPath } from './PathUtils'
@@ -8,7 +8,9 @@ import PathBar from './PathBar'
 import { ListItem } from './SegList'
 import SegList from './SegList'
 import SegView from '../view/SegView'
-import SegCreate from './SegCreate'
+import SegCreate from '../panel/SegCreate'
+import SegAdd from '../panel/SegAdd'
+import ModifyParent from '../panel/ModifyParent'
 import PathTabAllItem from './PathTabAllItem'
 import ContentView from '../view/ContentView'
 import Menu, { MenuItem, MenuItemSingle } from '@wwf971/react-comp-misc/src/menu/Menu'
@@ -38,6 +40,21 @@ function getItemType(id: string): 'segment' | 'content' | null {
 function getItemName(id: string): string | null {
   const segment = segmentCache.getSync(id)
   return segment ? segment.name : null
+}
+
+/**
+ * Helper: Check if content has bind relationship with any segment
+ */
+async function hasBindRelationship(contentId: string): Promise<boolean> {
+  const client = getSupabaseClient()
+  const { data } = await client
+    .from('segment_relation')
+    .select('segment_1')
+    .eq('segment_2', contentId)
+    .eq('type', 2)  // parent_child_bind
+    .limit(1)
+  
+  return !!(data && data.length > 0)
 }
 
 /**
@@ -88,6 +105,10 @@ const PathTab: React.FC<PathTabProps> = ({
   const [showCreatePanel, setShowCreatePanel] = useState(false)
   const [createType, setCreateType] = useState<'path' | 'content'>('path')
   const [contentTypeForCreate, setContentTypeForCreate] = useState<'text' | 'image' | 'file'>('text')
+  const [showAddContentPanel, setShowAddContentPanel] = useState(false)
+  const [addContentParent, setAddContentParent] = useState<{ id: string; name: string } | null>(null)
+  const [showModifyParentPanel, setShowModifyParentPanel] = useState(false)
+  const [modifyParentContent, setModifyParentContent] = useState<{ id: string; name: string } | null>(null)
 
   /**
    * Load segment information from cache or server
@@ -115,33 +136,39 @@ const PathTab: React.FC<PathTabProps> = ({
         
         // For segments: add trailing /
         // For content with name: show name without trailing /
-        // For content with empty name: skip this element (path ends at parent)
+        // For bound content: skip this element (path ends at parent)
         if (itemType === 'segment') {
           loadedSegments.push({
             id: segment.id,
             name: segment.name + '/'
           })
-        } else if (itemType === 'content' && segment.name) {
-          // Content with a name - show it
-          loadedSegments.push({
-            id: segment.id,
-            name: segment.name
-          })
+        } else if (itemType === 'content') {
+          // Check if this content is bound to a segment
+          const isBound = await hasBindRelationship(id)
+          if (!isBound && segment.name) {
+            // Regular content with a name - show it
+            loadedSegments.push({
+              id: segment.id,
+              name: segment.name
+            })
+          }
+          // If bound content - don't add to path display
         }
-        // If content with empty name - don't add to path display
       }
     }
 
-    // If last item was content with empty name, remove trailing / from previous segment
+    // If last item was bound content, remove trailing / from previous segment
     const lastId = data.currentPath[data.currentPath.length - 1]
     if (lastId) {
       const lastType = getItemType(lastId)
-      const lastSeg = await loadSegment(lastId)
-      if (lastType === 'content' && lastSeg && !lastSeg.name && loadedSegments.length > 0) {
-        // Remove trailing slash from the last displayed segment
-        const lastDisplayed = loadedSegments[loadedSegments.length - 1]
-        if (lastDisplayed.name.endsWith('/')) {
-          lastDisplayed.name = lastDisplayed.name.slice(0, -1)
+      if (lastType === 'content') {
+        const isBound = await hasBindRelationship(lastId)
+        if (isBound && loadedSegments.length > 0) {
+          // Remove trailing slash from the last displayed segment
+          const lastDisplayed = loadedSegments[loadedSegments.length - 1]
+          if (lastDisplayed.name.endsWith('/')) {
+            lastDisplayed.name = lastDisplayed.name.slice(0, -1)
+          }
         }
       }
     }
@@ -201,6 +228,15 @@ const PathTab: React.FC<PathTabProps> = ({
       
       // Update the previous path reference
       prevPathRef.current = data.currentPath
+      
+      // Reset panel states when path changes
+      if (pathActuallyChanged) {
+        setShowCreatePanel(false)
+        setShowAddContentPanel(false)
+        setShowModifyParentPanel(false)
+        setAddContentParent(null)
+        setModifyParentContent(null)
+      }
       
       // Always load path for PathBar
       await loadPath()
@@ -433,6 +469,11 @@ const PathTab: React.FC<PathTabProps> = ({
           },
           {
             type: 'item',
+            name: 'Add Content',
+            data: { action: 'addContent', itemId: contextMenu.itemId, itemType: 'segment' }
+          },
+          {
+            type: 'item',
             name: 'Rename',
             data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'segment' }
           },
@@ -444,46 +485,64 @@ const PathTab: React.FC<PathTabProps> = ({
         ]
       }
     } else {
-      // Context menu for background (create new items)
-      return [
-        {
-          type: 'menu',
-          name: 'New',
-          children: [
-            {
-              type: 'item',
-              name: 'Segment',
-              data: { action: 'createSegment' }
-            },
-            {
-              type: 'item',
-              name: 'Text Content',
-              data: { action: 'createContent', contentType: 'text' }
-            },
-            {
-              type: 'item',
-              name: 'Image Content',
-              data: { action: 'createContent', contentType: 'image' }
-            },
-            {
-              type: 'item',
-              name: 'PDF Content',
-              data: { action: 'createContent', contentType: 'file' }
-            }
-          ]
-        },
-        {
-          type: 'menu',
-          name: 'New (Quick)',
-          children: [
-            {
-              type: 'item',
-              name: 'Segment',
-              data: { action: 'createSegmentQuick' }
-            }
-          ]
+      // Context menu for background (create new items / add content to current segment)
+      const currentSegmentId = data.currentPath[data.currentPath.length - 1]
+      const menuItems: MenuItem[] = []
+      
+      // Add "Add Content" if we have a current segment
+      if (currentSegmentId) {
+        const segment = segmentCache.getSync(currentSegmentId)
+        if (segment) {
+          menuItems.push({
+            type: 'item',
+            name: 'Add Content',
+            data: { action: 'addContent', itemId: currentSegmentId }
+          })
         }
-      ]
+      }
+      
+      // Add "New" menu
+      menuItems.push({
+        type: 'menu',
+        name: 'New',
+        children: [
+          {
+            type: 'item',
+            name: 'Segment',
+            data: { action: 'createSegment' }
+          },
+          {
+            type: 'item',
+            name: 'Text Content',
+            data: { action: 'createContent', contentType: 'text' }
+          },
+          {
+            type: 'item',
+            name: 'Image Content',
+            data: { action: 'createContent', contentType: 'image' }
+          },
+          {
+            type: 'item',
+            name: 'PDF Content',
+            data: { action: 'createContent', contentType: 'file' }
+          }
+        ]
+      })
+      
+      // Add "New (Quick)" menu
+      menuItems.push({
+        type: 'menu',
+        name: 'New (Quick)',
+        children: [
+          {
+            type: 'item',
+            name: 'Segment',
+            data: { action: 'createSegmentQuick' }
+          }
+        ]
+      })
+      
+      return menuItems
     }
   }
 
@@ -498,6 +557,13 @@ const PathTab: React.FC<PathTabProps> = ({
       handleItemDoubleClick(itemId, 'content')
     } else if (action === 'open' && itemId) {
       handleItemDoubleClick(itemId, 'segment')
+    } else if (action === 'addContent' && itemId) {
+      // Get segment name from cache
+      const segment = segmentCache.getSync(itemId)
+      if (segment) {
+        setAddContentParent({ id: itemId, name: segment.name })
+        setShowAddContentPanel(true)
+      }
     } else if (action === 'createSegment') {
       handleCreateFromMenu('path')
     } else if (action === 'createContent') {
@@ -546,15 +612,21 @@ const PathTab: React.FC<PathTabProps> = ({
     
     let result
     if (itemType === 'segment') {
+      // Delete all relations first (handles cache invalidation)
+      const relResult = await segRelationCache.removeAllRelations(itemId)
+      if (relResult.code !== 0) {
+        console.error(`[PathTab] ❌ Failed to delete relations: ${relResult.message}`)
+        setErrorMessage(`Failed to delete relations: ${relResult.message}`)
+        return
+      }
+      
       // Delete segment using cache method
       result = await segmentCache.deleteSegment(itemId)
       
       if (result.code === 0) {
-        console.log(`[PathTab] ✅ Deleted segment ${itemId}, ${result.data?.relationsDeleted || 0} relations removed`)
+        console.log(`[PathTab] ✅ Deleted segment ${itemId} with all relations`)
         
-        // Invalidate caches for all affected parents
-        // Since we deleted all relations, we need to invalidate all parent caches
-        // For now, just reload items
+        // Reload items
         await loadItems()
       }
     } else {
@@ -642,6 +714,15 @@ const PathTab: React.FC<PathTabProps> = ({
   const handleDeleteFromContentView = async (contentId: string) => {
     const itemName = lastItemName || '(unnamed content)'
     setDeleteConfirm({ itemId: contentId, itemName })
+  }
+
+  /**
+   * Handle modify parent from ContentView
+   */
+  const handleModifyParentFromContentView = async (contentId: string) => {
+    const itemName = lastItemName || '(unnamed content)'
+    setModifyParentContent({ id: contentId, name: itemName })
+    setShowModifyParentPanel(true)
   }
 
   /**
@@ -749,11 +830,34 @@ const PathTab: React.FC<PathTabProps> = ({
             />
           </div>
           <div className="path-tab-content">
-            <ContentView 
-              contentId={lastId}
-              contentName={lastItemName || ''}
-              onDelete={handleDeleteFromContentView}
-            />
+            {showModifyParentPanel && modifyParentContent ? (
+              <>
+                <div className="path-tab-description">
+                  Modify Parent Relationships for: <strong>{modifyParentContent.name}</strong>
+                </div>
+                <ModifyParent
+                  contentId={modifyParentContent.id}
+                  contentName={modifyParentContent.name}
+                  onModified={() => {
+                    setShowModifyParentPanel(false)
+                    setModifyParentContent(null)
+                    loadPath()  // Reload path in case relationships changed
+                    loadItems()  // Reload items
+                  }}
+                  onCancel={() => {
+                    setShowModifyParentPanel(false)
+                    setModifyParentContent(null)
+                  }}
+                />
+              </>
+            ) : (
+              <ContentView 
+                contentId={lastId}
+                contentName={lastItemName || ''}
+                onDelete={handleDeleteFromContentView}
+                onModifyParent={handleModifyParentFromContentView}
+              />
+            )}
           </div>
         </div>
 
@@ -945,6 +1049,25 @@ const PathTab: React.FC<PathTabProps> = ({
               presetDirectParent={data.currentPath[data.currentPath.length - 1]}
               onSegmentCreated={handleCreationComplete}
               onCancel={() => setShowCreatePanel(false)}
+            />
+          </>
+        ) : showAddContentPanel && addContentParent ? (
+          <>
+            <div className="path-tab-description">
+              Add existing content as children to "{addContentParent.name}".
+            </div>
+            <SegAdd
+              parentSegmentId={addContentParent.id}
+              parentSegmentName={addContentParent.name}
+              onContentAdded={() => {
+                setShowAddContentPanel(false)
+                setAddContentParent(null)
+                loadItems()
+              }}
+              onCancel={() => {
+                setShowAddContentPanel(false)
+                setAddContentParent(null)
+              }}
             />
           </>
         ) : (

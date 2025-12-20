@@ -9,7 +9,7 @@ import {
   IdRecord,
   IdTypeRecord
 } from '../backend/id'
-import { formatIdInfo } from '../utils/id'
+import { formatIdInfo } from './IdMs48'
 import './IdManage.css'
 
 const IdManage: React.FC = () => {
@@ -244,7 +244,7 @@ const IdManage: React.FC = () => {
                 return (
                   <tr key={id.id_string}>
                     <td className="mono">{id.id_string}</td>
-                    <td className="mono">{info.readable || 'Invalid'}</td>
+                    <td className="mono">{info.dateLocal || 'Invalid'}</td>
                     <td>
                       <span className={`state-badge state-${id.state < 0 ? 'aborted' : id.state === 0 ? 'in-use' : 'issued'}`}>
                         {getStateName(id.state)}

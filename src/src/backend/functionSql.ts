@@ -2,7 +2,8 @@
 
 export const createGetContentByPathFunction = () => `-- Function: Get content by path
 -- Returns content data for a given path (e.g., ['name', 'en'])
--- Handles both direct content and content with empty name under a segment
+-- New logic: Uses bind relationship (type=2) instead of empty name convention
+-- Priority: bound content > direct child content > indirect child content
 CREATE OR REPLACE FUNCTION get_content_by_path(path_segments TEXT[])
 RETURNS TABLE(
   id TEXT,
@@ -16,13 +17,13 @@ RETURNS TABLE(
 DECLARE
   current_id TEXT := NULL;
   seg_name TEXT;
-  child_id TEXT;
+  content_id TEXT;
   is_root BOOLEAN := TRUE;
 BEGIN
-  -- Walk through path segments
+  -- Walk through path segments to find the target segment
   FOREACH seg_name IN ARRAY path_segments
   LOOP
-    -- Find child with matching name
+    -- Find child segment/content with matching name
     IF is_root THEN
       -- Root level: find segment without parent relation
       SELECT s.id INTO current_id
@@ -51,32 +52,65 @@ BEGIN
     END IF;
   END LOOP;
   
-  -- Check if current_id is content
+  -- Check if current_id is already content
   IF EXISTS (SELECT 1 FROM content WHERE content.id = current_id) THEN
-    -- Return this content
+    -- Return this content directly
     RETURN QUERY
     SELECT c.id, c.type_code, ct.type_name, c.value, c.created_at, c.updated_at, c.metadata
     FROM content c
     LEFT JOIN content_type ct ON ct.type_code = c.type_code
     WHERE c.id = current_id;
-  ELSE
-    -- Current is segment, look for content with empty name
-    SELECT s.id INTO child_id
-    FROM segment s
-    INNER JOIN segment_relation sr ON sr.segment_2 = s.id
-    INNER JOIN content c ON c.id = s.id
-    WHERE sr.segment_1 = current_id
-      AND sr.type = 0
-      AND s.name = ''
-    LIMIT 1;
-    
-    IF child_id IS NOT NULL THEN
-      RETURN QUERY
-      SELECT c.id, c.type_code, ct.type_name, c.value, c.created_at, c.updated_at, c.metadata
-      FROM content c
-      LEFT JOIN content_type ct ON ct.type_code = c.type_code
-      WHERE c.id = child_id;
-    END IF;
+    RETURN;
+  END IF;
+  
+  -- Current is segment, look for bound content (type=2, highest priority)
+  SELECT sr.segment_2 INTO content_id
+  FROM segment_relation sr
+  INNER JOIN content c ON c.id = sr.segment_2
+  WHERE sr.segment_1 = current_id
+    AND sr.type = 2  -- parent_child_bind
+  LIMIT 1;
+  
+  IF content_id IS NOT NULL THEN
+    RETURN QUERY
+    SELECT c.id, c.type_code, ct.type_name, c.value, c.created_at, c.updated_at, c.metadata
+    FROM content c
+    LEFT JOIN content_type ct ON ct.type_code = c.type_code
+    WHERE c.id = content_id;
+    RETURN;
+  END IF;
+  
+  -- No bound content, look for direct child content (type=0, medium priority)
+  SELECT sr.segment_2 INTO content_id
+  FROM segment_relation sr
+  INNER JOIN content c ON c.id = sr.segment_2
+  WHERE sr.segment_1 = current_id
+    AND sr.type = 0  -- parent_child_direct
+  LIMIT 1;
+  
+  IF content_id IS NOT NULL THEN
+    RETURN QUERY
+    SELECT c.id, c.type_code, ct.type_name, c.value, c.created_at, c.updated_at, c.metadata
+    FROM content c
+    LEFT JOIN content_type ct ON ct.type_code = c.type_code
+    WHERE c.id = content_id;
+    RETURN;
+  END IF;
+  
+  -- No direct child content, look for indirect child content (type=1, lowest priority)
+  SELECT sr.segment_2 INTO content_id
+  FROM segment_relation sr
+  INNER JOIN content c ON c.id = sr.segment_2
+  WHERE sr.segment_1 = current_id
+    AND sr.type = 1  -- parent_child_indirect
+  LIMIT 1;
+  
+  IF content_id IS NOT NULL THEN
+    RETURN QUERY
+    SELECT c.id, c.type_code, ct.type_name, c.value, c.created_at, c.updated_at, c.metadata
+    FROM content c
+    LEFT JOIN content_type ct ON ct.type_code = c.type_code
+    WHERE c.id = content_id;
   END IF;
 END;
 $$ LANGUAGE plpgsql;`

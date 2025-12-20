@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react'
-import { segmentCache, segPathCache } from '../backend/cache'
+import { segmentCache, segPathCache } from '../cache/cache'
 import { getPathToRoot } from '../backend/segment'
 import { formatSegmentPath } from './pathUtils'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'

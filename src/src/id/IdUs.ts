@@ -55,7 +55,7 @@ export function id_09ae_to_int(id_str: string): bigint {
 /**
  * Generate a new ID string based on current timestamp
  */
-export function generateIdString(): string {
+export function genIdStr(): string {
   const timestampUs = getUnixStampUs()
   return id_int_to_09ae(BigInt(timestampUs))
 }

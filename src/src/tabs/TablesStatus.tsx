@@ -20,6 +20,8 @@ import {
 import { getSupabaseClient } from '../backend/supabase'
 import TableManage from './TableManage'
 import FunctionManage from './FunctionManage'
+import TabsOnTop from '@wwf971/react-comp-misc/src/layout/tab/TabsOnTop'
+import '@wwf971/react-comp-misc/src/layout/tab/TabsOnTop.css'
 import './TablesStatus.css'
 
 // Table configuration
@@ -186,9 +188,32 @@ const TablesStatus: React.FC = () => {
   const checkFunctionExists = async (functionName: string): Promise<boolean> => {
     try {
       const client = getSupabaseClient()
-      await client.rpc(functionName, { path_segments: [] })
+      
+      // Try calling the function with minimal/no parameters
+      // The goal is to check the error response
+      try {
+        // Try with empty object (works for most functions)
+        await client.rpc(functionName, {})
+      } catch (error: any) {
+        // Check the error to determine if function exists
+        const errorMsg = error?.message || ''
+        const errorCode = error?.code || ''
+        
+        // 404 or PGRST202 means function doesn't exist
+        if (errorCode === 'PGRST202' || errorCode === '404' || errorMsg.includes('not found')) {
+          console.log(`[checkFunctionExists] Function ${functionName} does not exist`)
+          return false
+        }
+        
+        // Any other error (parameter mismatch, etc.) means function exists but we called it wrong
+        console.log(`[checkFunctionExists] Function ${functionName} exists (got error: ${errorCode})`)
+        return true
+      }
+      
+      // If no error, function exists and executed successfully
       return true
-    } catch {
+    } catch (err) {
+      console.error(`[checkFunctionExists] Error checking ${functionName}:`, err)
       return false
     }
   }
@@ -213,27 +238,39 @@ const TablesStatus: React.FC = () => {
     setTableStatus(Object.fromEntries(tableConfigs.map(config => [config.name, null])))
     setFunctionManage(Object.fromEntries(functionConfigs.map(config => [config.name, null])))
     
-    // Check each table individually and update immediately
     const { checkTableExists } = await import('../backend/dbInit')
     
-    for (const config of tableConfigs) {
+    // Check all tables in parallel
+    const tablePromises = tableConfigs.map(async (config) => {
       const result = await checkTableExists(config.name)
       
       if (result.code === 0) {
         setTableStatus(prev => ({ ...prev, [config.name]: result.data || false }))
+        return { name: config.name, success: true, code: result.code }
       } else if (result.code === -1) {
-        setError('Please configure Supabase connection first in the Backend tab.')
         setTableStatus(prev => ({ ...prev, [config.name]: false }))
-        break // Stop checking if not configured
+        return { name: config.name, success: false, code: result.code }
       } else {
         setTableStatus(prev => ({ ...prev, [config.name]: false }))
+        return { name: config.name, success: false, code: result.code }
       }
-    }
+    })
 
-    // Check functions
-    for (const config of functionConfigs) {
+    // Check all functions in parallel
+    const functionPromises = functionConfigs.map(async (config) => {
       const exists = await checkFunctionExists(config.name)
       setFunctionManage(prev => ({ ...prev, [config.name]: exists }))
+      return { name: config.name, exists }
+    })
+
+    // Wait for all checks to complete
+    const tableResults = await Promise.all(tablePromises)
+    await Promise.all(functionPromises)
+    
+    // Check if any table had configuration error
+    const configError = tableResults.find(r => r.code === -1)
+    if (configError) {
+      setError('Please configure Supabase connection first in the Backend tab.')
     }
   }
 
@@ -260,35 +297,41 @@ const TablesStatus: React.FC = () => {
         </div>
       )}
 
-      <div className="tables-container">
-        {tableConfigs.map(config => (
-          <TableManage
-            key={config.name}
-            tableName={config.name}
-            description={config.description}
-            exists={tableStatus[config.name]}
-            createSQL={config.createSQL()}
-            onRefresh={checkAllTables}
-            onRefreshSingle={() => handleRefreshSingle(config.name)}
-            onShowSQL={(sql) => setModalData({ name: config.name, sql })}
-          />
-        ))}
-      </div>
+      <TabsOnTop defaultTab="tables">
+        <TabsOnTop.Tab label="Tables">
+          <div className="tables-container">
+            {tableConfigs.map(config => (
+              <TableManage
+                key={config.name}
+                tableName={config.name}
+                description={config.description}
+                exists={tableStatus[config.name]}
+                createSQL={config.createSQL()}
+                onRefresh={checkAllTables}
+                onRefreshSingle={() => handleRefreshSingle(config.name)}
+                onShowSQL={(sql) => setModalData({ name: config.name, sql })}
+              />
+            ))}
+          </div>
+        </TabsOnTop.Tab>
 
-      <div className="functions-container">
-        {functionConfigs.map(config => (
-          <FunctionManage
-            key={config.name}
-            functionName={config.name}
-            description={config.description}
-            exists={functionStatus[config.name]}
-            createSQL={config.createSQL}
-            dropSQL={config.dropSQL}
-            onRefreshSingle={() => handleRefreshSingleFunction(config.name)}
-            onShowSQL={(sql, dropSQL) => setModalData({ name: config.name, sql, dropSQL })}
-          />
-        ))}
-      </div>
+        <TabsOnTop.Tab label="Functions">
+          <div className="functions-container">
+            {functionConfigs.map(config => (
+              <FunctionManage
+                key={config.name}
+                functionName={config.name}
+                description={config.description}
+                exists={functionStatus[config.name]}
+                createSQL={config.createSQL}
+                dropSQL={config.dropSQL}
+                onRefreshSingle={() => handleRefreshSingleFunction(config.name)}
+                onShowSQL={(sql, dropSQL) => setModalData({ name: config.name, sql, dropSQL })}
+              />
+            ))}
+          </div>
+        </TabsOnTop.Tab>
+      </TabsOnTop>
 
       <SQLModal
         isOpen={modalData !== null}

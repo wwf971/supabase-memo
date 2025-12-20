@@ -1,15 +1,15 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react'
-import SegList, { ListItem } from './SegList'
-import SegSelect, { SelectItem } from './SegSelect'
-import { getSegments, getPathSegment } from './pathUtils'
+import SegList, { ListItem } from '../path/SegList'
+import SegSelect, { SelectItem } from '../path/SegSelect'
+import { getSegments, getPathSegment } from '../path/PathUtils'
 import { issueId } from '../backend/id'
-import { createSegment } from './pathUtils'
+import { createSegment } from '../path/PathUtils'
 import { createRelation, SegmentRelationType } from '../backend/segment'
 import { createContent } from '../backend/content'
 import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
-import { segmentCache, segChildrenCache, contentBinaryCache, PathSegmentCache } from '../backend/cache'
-import ContentUpload from '../view/ContentUpload'
+import { segmentCache, segChildrenCache, contentBinaryCache, PathSegmentCache } from '../cache/cache'
+import ContentUpload from './ContentUpload'
 import { detectFileType, isFileTypeSupported } from '../utils/type'
 import './SegCreate.css'
 
@@ -40,12 +40,16 @@ const SegCreate: React.FC<SegCreateProps> = ({
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [detectedFileType, setDetectedFileType] = useState<string>('')
   const [isFileTypeSupported, setIsFileTypeSupported] = useState<boolean>(true)
+  const [uploadCurrentStep, setUploadCurrentStep] = useState<number>(0)
+  const [uploadTotalSteps] = useState<number>(2) // Reading file + Uploading
+  const [uploadStepLabel, setUploadStepLabel] = useState<string>('Uploading')
+  const [uploadStatus, setUploadStatus] = useState<'uploading' | 'success' | 'error' | undefined>(undefined)
   
   // Parent selection
   const [parentSearchQuery, setParentSearchQuery] = useState('')
   const [parentSearchResults, setParentSearchResults] = useState<ListItem[]>([])
   const [selectedParents, setSelectedParents] = useState<ListItem[]>([])
-  const [directParentId, setDirectParentId] = useState<string | null>(null)
+  const [parentRoles, setParentRoles] = useState<Record<string, { isDirect: boolean; isIndirect: boolean; isBind: boolean }>>({})
   const [loadingParentSearch, setLoadingParentSearch] = useState(false)
   const [showParentDropdown, setShowParentDropdown] = useState(false)
   
@@ -75,7 +79,9 @@ const SegCreate: React.FC<SegCreateProps> = ({
             type: 'segment' as const
           }
           setSelectedParents([parentItem])
-          setDirectParentId(parentInfo.id)
+          setParentRoles({
+            [parentInfo.id]: { isDirect: true, isIndirect: false, isBind: false }
+          })
           console.log('[SegCreate] Preset parent set:', parentItem)
         }
       }
@@ -150,10 +156,12 @@ const SegCreate: React.FC<SegCreateProps> = ({
   const handleAddParent = (item: ListItem) => {
     if (!selectedParents.find(p => p.id === item.id)) {
       setSelectedParents([...selectedParents, item])
-      // Set as direct parent if it's the first one
-      if (selectedParents.length === 0) {
-        setDirectParentId(item.id)
-      }
+      // Default to direct relationship for first parent, indirect for others
+      const isFirst = selectedParents.length === 0
+      setParentRoles({
+        ...parentRoles,
+        [item.id]: { isDirect: isFirst, isIndirect: !isFirst, isBind: false }
+      })
     }
     setParentSearchQuery('')
     setParentSearchResults([])
@@ -162,9 +170,16 @@ const SegCreate: React.FC<SegCreateProps> = ({
 
   const handleRemoveParent = (id: string) => {
     setSelectedParents(selectedParents.filter(p => p.id !== id))
-    if (directParentId === id) {
-      setDirectParentId(selectedParents.length > 1 ? selectedParents[0].id : null)
-    }
+    const newRoles = { ...parentRoles }
+    delete newRoles[id]
+    setParentRoles(newRoles)
+  }
+
+  const handleParentRoleChange = (itemId: string, role: { isDirect: boolean; isIndirect: boolean; isBind: boolean }) => {
+    setParentRoles({
+      ...parentRoles,
+      [itemId]: role
+    })
   }
 
   const handleAddChild = (item: ListItem) => {
@@ -194,9 +209,13 @@ const SegCreate: React.FC<SegCreateProps> = ({
       return
     }
 
-    if (selectedParents.length > 0 && !directParentId) {
-      setError('Please select a direct parent')
-      return
+    // Validate at least one parent has some relationship (direct, indirect, or bind)
+    if (selectedParents.length > 0) {
+      const hasRelationship = Object.values(parentRoles).some(role => role.isDirect || role.isIndirect || role.isBind)
+      if (!hasRelationship) {
+        setError('At least one parent must have a relationship (direct, indirect, or bind)')
+        return
+      }
     }
 
     setIsCreating(true)
@@ -229,6 +248,11 @@ const SegCreate: React.FC<SegCreateProps> = ({
         // For binary file uploads (image, pdf, etc.), upload to content_binary table
         const isBinaryType = [10, 21, 99].includes(contentType) // image, pdf, unknown binary
         if (isBinaryType && uploadFile) {
+          // Step 1: Reading file
+          setUploadStatus('uploading')
+          setUploadCurrentStep(1)
+          setUploadStepLabel('Reading file')
+          
           // Read file as ArrayBuffer for binary storage
           const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
             const reader = new FileReader()
@@ -237,6 +261,10 @@ const SegCreate: React.FC<SegCreateProps> = ({
             reader.readAsArrayBuffer(uploadFile)
           })
           
+          // Step 2: Uploading to server
+          setUploadCurrentStep(2)
+          setUploadStepLabel('Uploading')
+          
           // Upload to content_binary table (MIME type determined from contentType)
           const binaryResult = await contentBinaryCache.upload(
             newId,
@@ -244,10 +272,15 @@ const SegCreate: React.FC<SegCreateProps> = ({
           )
           
           if (binaryResult.code !== 0) {
+            setUploadStatus('error')
+            setUploadStepLabel('Upload failed')
             setError(binaryResult.message || 'Failed to upload binary data')
             setIsCreating(false)
             return
           }
+          
+          setUploadStatus('success')
+          setUploadStepLabel('Complete')
           
           // Store reference to binary ID in content.value
           finalValue = `binary:${newId}`
@@ -266,16 +299,31 @@ const SegCreate: React.FC<SegCreateProps> = ({
         }
       }
 
-      // Create parent relations
+      // Create parent relations based on roles
       for (const parent of selectedParents) {
-        const relType = parent.id === directParentId 
-          ? SegmentRelationType.PARENT_CHILD_DIRECT 
-          : SegmentRelationType.PARENT_CHILD_INDIRECT
-        await createRelation(parent.id, newId, relType)
+        const role = parentRoles[parent.id]
+        if (!role) continue
         
-        // Invalidate cache for parent's children
-        segChildrenCache.delete(parent.id, relType)
-        console.log(`[SegCreate] Invalidated children cache for parent ${parent.id}, type ${relType}`)
+        // Create direct relation if checked
+        if (role.isDirect) {
+          await createRelation(parent.id, newId, SegmentRelationType.PARENT_CHILD_DIRECT)
+          segChildrenCache.delete(parent.id, SegmentRelationType.PARENT_CHILD_DIRECT)
+          console.log(`[SegCreate] Created direct relation: ${parent.id} -> ${newId}`)
+        }
+        
+        // Create indirect relation if checked
+        if (role.isIndirect) {
+          await createRelation(parent.id, newId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+          segChildrenCache.delete(parent.id, SegmentRelationType.PARENT_CHILD_INDIRECT)
+          console.log(`[SegCreate] Created indirect relation: ${parent.id} -> ${newId}`)
+        }
+        
+        // Create bind relation if checked
+        if (role.isBind) {
+          await createRelation(parent.id, newId, SegmentRelationType.PARENT_CHILD_BIND)
+          segChildrenCache.delete(parent.id, SegmentRelationType.PARENT_CHILD_BIND)
+          console.log(`[SegCreate] Created bind relation: ${parent.id} -> ${newId}`)
+        }
       }
 
       // Create child relations (for path segments)
@@ -298,9 +346,12 @@ const SegCreate: React.FC<SegCreateProps> = ({
       setUploadFile(null)
       setDetectedFileType('')
       setIsFileTypeSupported(true)
+      setUploadCurrentStep(0)
+      setUploadStepLabel('Uploading')
+      setUploadStatus(undefined)
       setSelectedParents([])
+      setParentRoles({})
       setSelectedChildren([])
-      setDirectParentId(null)
       setDirectChildId(null)
       setIsCreating(false)
 
@@ -404,8 +455,16 @@ const SegCreate: React.FC<SegCreateProps> = ({
                   if (!name.trim()) {
                     setName(file.name)
                   }
+                  // Reset upload status when new file selected
+                  setUploadCurrentStep(0)
+                  setUploadStepLabel('Uploading')
+                  setUploadStatus(undefined)
                 }}
                 currentFile={uploadFile}
+                uploadCurrentStep={uploadCurrentStep}
+                uploadTotalSteps={uploadTotalSteps}
+                uploadStepLabel={uploadStepLabel}
+                uploadStatus={uploadStatus}
               />
             </div>
           ) : (
@@ -425,8 +484,17 @@ const SegCreate: React.FC<SegCreateProps> = ({
                   setDetectedFileType(fileTypeInfo.typeName)
                   setContentType(fileTypeInfo.typeCode)
                   setIsFileTypeSupported(fileTypeInfo.typeCode !== 99)
+                  
+                  // Reset upload status when new file selected
+                  setUploadCurrentStep(0)
+                  setUploadStepLabel('Uploading')
+                  setUploadStatus(undefined)
                 }}
                 currentFile={uploadFile}
+                uploadCurrentStep={uploadCurrentStep}
+                uploadTotalSteps={uploadTotalSteps}
+                uploadStepLabel={uploadStepLabel}
+                uploadStatus={uploadStatus}
               />
               <div className="file-type-info">
                 <div>Detected type: <strong>{uploadFile ? (detectedFileType || 'Unknown') : '-'}</strong></div>
@@ -478,9 +546,9 @@ const SegCreate: React.FC<SegCreateProps> = ({
               items={selectedParents}
               selectionMode={true}
               columns={['name']}
-              showDirectParentRadio={true}
-              selectedDirectParentId={directParentId}
-              onDirectParentSelect={setDirectParentId}
+              showRoleSelection={true}
+              itemRoles={parentRoles}
+              onRoleChange={handleParentRoleChange}
               showRemoveButton={true}
               onItemRemove={handleRemoveParent}
               padding="0"

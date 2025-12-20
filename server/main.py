@@ -185,7 +185,9 @@ def get_children_multi_query(segments: List[str]):
     return {'code': 0, 'data': {'items': items, 'segment_id': item_id}}
 
 def get_content_multi_query(segments: List[str]):
-    """Get content using multiple queries (fallback method)"""
+    """Get content using multiple queries (fallback method)
+    New logic: Uses bind relationship (type=2) instead of empty name convention
+    Priority: bound content > direct child content > indirect child content"""
     print("[METHOD] Using multi-query approach for get_content")
     
     item_id = resolve_path_to_id(segments)
@@ -197,19 +199,39 @@ def get_content_multi_query(segments: List[str]):
     if is_content(item_id):
         content_id = item_id
     else:
-        # Look for content with empty name under this segment
-        child_ids = get_children_ids(item_id)
+        # Item is a segment, look for associated content
+        # Priority: bound (type=2) > direct child (type=0) > indirect child (type=1)
         content_id = None
         
-        for child_id in child_ids:
-            seg_data = supabase.table('segment').select('name').eq('id', child_id).execute()
-            if seg_data.data and len(seg_data.data) > 0:
-                if seg_data.data[0]['name'] == '' and is_content(child_id):
-                    content_id = child_id
-                    break
+        # Try bound content first (type=2, highest priority)
+        bind_result = supabase.table('segment_relation').select('segment_2').eq('segment_1', item_id).eq('type', 2).limit(1).execute()
+        if bind_result.data and len(bind_result.data) > 0:
+            candidate_id = bind_result.data[0]['segment_2']
+            if is_content(candidate_id):
+                content_id = candidate_id
+        
+        # If no bound content, try direct child content (type=0)
+        if not content_id:
+            direct_result = supabase.table('segment_relation').select('segment_2').eq('segment_1', item_id).eq('type', 0).execute()
+            if direct_result.data:
+                for rel in direct_result.data:
+                    candidate_id = rel['segment_2']
+                    if is_content(candidate_id):
+                        content_id = candidate_id
+                        break
+        
+        # If no direct child content, try indirect child content (type=1)
+        if not content_id:
+            indirect_result = supabase.table('segment_relation').select('segment_2').eq('segment_1', item_id).eq('type', 1).execute()
+            if indirect_result.data:
+                for rel in indirect_result.data:
+                    candidate_id = rel['segment_2']
+                    if is_content(candidate_id):
+                        content_id = candidate_id
+                        break
         
         if not content_id:
-            return {'code': -2, 'message': 'Content not found (no content with empty name under this segment)'}
+            return {'code': -2, 'message': 'Content not found (no bound, direct, or indirect child content)'}
     
     # Get content data
     content_result = supabase.table('content').select('*').eq('id', content_id).execute()

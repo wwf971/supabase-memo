@@ -3,7 +3,7 @@
  * Avoids repeated server queries
  */
 
-import { getSupabaseClient } from './supabase'
+import { getSupabaseClient } from '../backend/supabase'
 
 export interface PathSegmentCache {
   id: string
@@ -436,54 +436,35 @@ class SegmentCache extends Cache<PathSegmentCache> {
         return { code: -1, message: 'Supabase client not available' }
       }
 
-      console.log(`[segment] 🗑️ Deleting segment ${id} and all relations`)
+      console.log(`[segment] 🗑️ Deleting segment ${id}`)
+      
+      // NOTE: Relation deletion is now handled by segRelationCache in the calling code
+      // This function only deletes the segment entry itself
 
-      // Try using PostgreSQL function first
-      const { data, error } = await client.rpc('delete_segment_with_relations', {
-        segment_id_to_delete: id
-      })
-
-      if (error) {
-        console.log(`[segment] ⚠️ PostgreSQL function failed, using fallback: ${error.message}`)
-        
-        // Fallback: manual deletion
-        // Delete all relations
-        const { error: relError } = await client
-          .from('segment_relation')
-          .delete()
-          .or(`segment_1.eq.${id},segment_2.eq.${id}`)
-        
-        if (relError) {
-          return { code: -2, message: `Failed to delete relations: ${relError.message}` }
-        }
-
-        // Delete segment
-        const { error: segError } = await client
-          .from('segment')
-          .delete()
-          .eq('id', id)
-        
-        if (segError) {
-          return { code: -3, message: `Failed to delete segment: ${segError.message}` }
-        }
-
-        console.log(`[segment] ✅ Deleted segment ${id} using fallback`)
-      } else {
-        const result: any = Array.isArray(data) ? data[0] : data
-        console.log(`[segment] ✅ Deleted segment ${id} using PostgreSQL function, ${result?.relations_deleted || 0} relations removed`)
+      // Delete segment from database
+      const { error: segError } = await client
+        .from('segment')
+        .delete()
+        .eq('id', id)
+      
+      if (segError) {
+        return { code: -3, message: `Failed to delete segment: ${segError.message}` }
       }
 
       // Remove from cache
       this.delete(id)
 
-      const result: any = Array.isArray(data) && data[0] ? data[0] : {}
-      return { code: 0, data: { relationsDeleted: result.relations_deleted || 0 } }
+      console.log(`[segment] ✅ Deleted segment ${id}`)
+      return { code: 0, data: { relationsDeleted: 0 } }
     } catch (err: any) {
       console.error(`[segment] ❌ Error deleting segment:`, err)
       return { code: -4, message: err.message || 'Failed to delete segment' }
     }
   }
 }
+
+// Import and re-export relation cache
+export { segRelationCache } from './relationCache'
 
 // Export singleton instances
 export const segmentCache = new SegmentCache('segment')

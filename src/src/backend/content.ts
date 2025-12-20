@@ -3,7 +3,7 @@
  */
 
 import { getSupabaseClient } from './supabase'
-import { contentCache, contentBinaryCache, segmentCache, segChildrenCache } from './cache'
+import { contentCache, contentBinaryCache, segmentCache, segRelationCache } from '../cache/cache'
 
 /**
  * Create a new content entry
@@ -151,23 +151,13 @@ export async function deleteContent(
       console.log(`[content] ↳ Detected binary content, binary_id: ${binaryId}`)
     }
     
-    // Get parent relationships before deletion (to invalidate cache)
-    const { data: parentRelations } = await client
-      .from('segment_relation')
-      .select('segment_1, type')
-      .eq('segment_2', id)
-    
-    // Delete from segment_relation (both as segment_1 and segment_2)
-    const { error: relationError } = await client
-      .from('segment_relation')
-      .delete()
-      .or(`segment_1.eq.${id},segment_2.eq.${id}`)
-    
-    if (relationError) {
-      console.log(`[content] ❌ Failed to delete relations: ${relationError.message}`)
-      return { code: -1, message: `Failed to delete relations: ${relationError.message}` }
+    // Delete all relations using cache (handles both as parent and child, invalidates caches)
+    const removeRelResult = await segRelationCache.removeAllRelations(id)
+    if (removeRelResult.code !== 0) {
+      console.log(`[content] ❌ Failed to delete relations: ${removeRelResult.message}`)
+      return { code: -1, message: `Failed to delete relations: ${removeRelResult.message}` }
     }
-    console.log(`[content] ✓ Deleted relations`)
+    console.log(`[content] ✓ Deleted all relations via segRelationCache`)
     
     // Delete binary data if exists
     if (isBinary && binaryId) {
@@ -214,14 +204,7 @@ export async function deleteContent(
     // Remove from all caches
     contentCache.delete(id)
     segmentCache.delete(id)
-    
-    // Invalidate parent children caches
-    if (parentRelations && parentRelations.length > 0) {
-      for (const rel of parentRelations) {
-        segChildrenCache.delete(rel.segment_1, rel.type)
-        console.log(`[content] ✓ Invalidated children cache for parent ${rel.segment_1}, type ${rel.type}`)
-      }
-    }
+    // Note: Parent children caches already invalidated by segRelationCache.removeAllRelations()
     
     const duration = (performance.now() - startTime).toFixed(2)
     console.log(`[content] ✅ Deleted content ${id} successfully (${duration}ms)`)

@@ -8,7 +8,7 @@ import {
   stringToTimestamp,
   timestampToReadable,
   readableToTimestamp,
-  generateIdString,
+  genIdStr,
   formatIdInfo
 } from './id'
 
@@ -27,7 +27,7 @@ console.log()
 
 // Test 2: Current timestamp
 console.log('Test 2: Current timestamp')
-const idString = generateIdString()
+const idString = genIdStr()
 const info = formatIdInfo(idString, 540) // +09:00 JST
 console.log(`  ID String: ${info.idString}`)
 console.log(`  Timestamp: ${info.timestamp}`)

@@ -169,15 +169,33 @@
 }
 
 .radio-header {
-  width: 70px;
+  min-width: 70px;
   text-align: center;
   font-size: 12px;
+}
+
+.radio-header .th-content {
+  justify-content: center;
 }
 
 .radio-header-content {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.radio-header-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.radio-header-content .info-icon-wrapper {
+  flex-shrink: 0;
 }
 
 .info-icon-wrapper {
@@ -223,6 +241,48 @@
 }
 
 .radio-cell input[type="radio"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+/* Role selection styles */
+.role-header {
+  min-width: 80px;
+  text-align: center;
+  font-size: 12px;
+}
+
+.role-header .th-content {
+  justify-content: center;
+}
+
+.role-header-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.role-header-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.role-header-content .info-icon-wrapper {
+  flex-shrink: 0;
+}
+
+.role-cell {
+  text-align: center;
+  padding: 8px;
+}
+
+.role-cell input[type="checkbox"] {
   cursor: pointer;
   width: 16px;
   height: 16px;

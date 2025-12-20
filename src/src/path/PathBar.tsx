@@ -12,11 +12,20 @@ interface PathBarProps {
 }
 
 const PathBar: React.FC<PathBarProps> = ({ segments, onPathSegClicked }) => {
+  // Handle empty segments (orphan/bind-only content) - show single root segment
+  // This prevents the library from rendering both separator "/" and empty placeholder "/"
+  const displaySegments = segments.length === 0 
+    ? [{ id: '', name: '/' }] 
+    : segments
+  
+  // Don't add leading slash for root-only display (it already contains "/")
+  const shouldAddLeadingSlash = segments.length > 0
+  
   return (
     <_PathBar
-      pathData={{ segments }}
+      pathData={{ segments: displaySegments }}
       onPathSegClicked={onPathSegClicked}
-      addSlashBeforeFirstSeg={true}
+      addSlashBeforeFirstSeg={shouldAddLeadingSlash}
       allowEditText={false}
       height={26}
       separator=""

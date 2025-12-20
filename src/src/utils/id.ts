@@ -133,7 +133,7 @@ export function readableToTimestamp(readable: string): bigint {
 /**
  * Generate a new ID string
  */
-export function generateIdString(): string {
+export function genIdStr(): string {
   const timestamp = getUnixStampUs();
   return timestampToString(timestamp);
 }

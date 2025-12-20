@@ -18,9 +18,43 @@ export interface IdTypeRecord {
 }
 
 /**
- * Issue a new ID
+ * Issue a new ID using ms48 format (48-bit millisecond timestamp + 16-bit offset)
  */
 export async function issueId(typeCode: number): Promise<{ code: number; message?: string; data?: string }> {
+  try {
+    // Use new ms48 ID system
+    const { generateSequentialId } = await import('../id/IdMs48')
+    
+    const client = getSupabaseClient()
+    const idString = generateSequentialId()
+
+    const { error } = await client
+      .from('id_09ae')
+      .insert({
+        id_string: idString,
+        state: IdState.ISSUED,
+        type_code: typeCode
+      })
+
+    if (error) {
+      return { code: -5, message: error.message }
+    }
+
+    return { code: 0, data: idString }
+  } catch (err: any) {
+    if (err.message && err.message.includes('not configured')) {
+      return { code: -1, message: 'Supabase not configured.' }
+    }
+    return { code: -5, message: err.message || 'Failed to issue ID' }
+  }
+}
+
+/**
+ * BACKUP: Old ID issuing logic using microseconds
+ * Kept for reference, do not use
+ */
+/*
+export async function issueId_OLD_MICROSECONDS(typeCode: number): Promise<{ code: number; message?: string; data?: string }> {
   try {
     // Import dynamically to avoid circular dependency
     const { id_int_to_09ae } = await import('../id/idUtils')
@@ -49,6 +83,7 @@ export async function issueId(typeCode: number): Promise<{ code: number; message
     return { code: -5, message: err.message || 'Failed to issue ID' }
   }
 }
+*/
 
 /**
  * Mark an ID as in use

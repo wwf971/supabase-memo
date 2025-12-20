@@ -8,10 +8,18 @@ export interface ListItem {
   id: string
   name: string
   type: 'segment' | 'content'
-  relationToDirect?: boolean  // true = direct child, false = indirect child
+  relationTypes?: number[]  // All relationship types (0=direct, 1=indirect, 2=bind)
   value?: string  // Only for content
   contentType?: number  // Only for content
   path?: string  // Path to root (e.g., "root > parent > current")
+}
+
+export interface ItemRole {
+  isDirect: boolean   // whether this is a direct parent-child relationship
+  isIndirect: boolean // whether this is an indirect parent-child relationship
+  isBind: boolean     // whether this is a bind parent-child lationship
+  // Note: isDirect and isIndirect are mutually exclusive (can't both be true)
+  // But both can be false (only bind relationship)
 }
 
 export type SegListColumn = 'name' | 'path' | 'type' | 'value'
@@ -38,6 +46,10 @@ interface SegListProps {
   onItemRemove?: (itemId: string) => void  // Callback when remove button is clicked
   colWidthRatio?: Record<string, number>  // Column width ratios (e.g., { name: 0.4, path: 0.3, type: 0.3 })
   onUpdateColWidthRatio?: (ratios: Record<string, number>) => void  // Callback when column widths change
+  // Role selection props (for AddContent panel)
+  showRoleSelection?: boolean  // Show role selection columns (direct/indirect radio + bind checkbox)
+  itemRoles?: Record<string, ItemRole>  // Current role for each item { [itemId]: { isDirect, isBind } }
+  onRoleChange?: (itemId: string, role: ItemRole) => void  // Callback when role changes
 }
 
 
@@ -65,7 +77,10 @@ const SegList: React.FC<SegListProps> = ({
   showRemoveButton = false,
   onItemRemove,
   colWidthRatio = {},
-  onUpdateColWidthRatio
+  onUpdateColWidthRatio,
+  showRoleSelection = false,
+  itemRoles = {},
+  onRoleChange
 }) => {
   const [editingName, setEditingName] = useState<string>('')
   // Column widths state (in pixels)
@@ -274,7 +289,7 @@ const SegList: React.FC<SegListProps> = ({
               <th className="radio-header" style={columnWidths['direct'] ? { width: columnWidths['direct'] } : undefined}>
                 <div className="th-content">
                   <span className="radio-header-content">
-                    Direct
+                    <span className="radio-header-text">Direct</span>
                     <span className="info-icon-wrapper" title="Set as direct parent">
                       <InfoIcon width={14} height={14} />
                     </span>
@@ -282,6 +297,43 @@ const SegList: React.FC<SegListProps> = ({
                   <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, 'direct', columns.length)} />
                 </div>
               </th>
+            )}
+            {showRoleSelection && (
+              <>
+                <th className="role-header" style={columnWidths['direct'] ? { width: columnWidths['direct'] } : undefined}>
+                  <div className="th-content">
+                    <span className="role-header-content">
+                      <span className="role-header-text">Direct</span>
+                      <span className="info-icon-wrapper" title="Direct parent-child relationship">
+                        <InfoIcon width={14} height={14} />
+                      </span>
+                    </span>
+                    <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, 'direct', columns.length)} />
+                  </div>
+                </th>
+                <th className="role-header" style={columnWidths['indirect'] ? { width: columnWidths['indirect'] } : undefined}>
+                  <div className="th-content">
+                    <span className="role-header-content">
+                      <span className="role-header-text">Indirect</span>
+                      <span className="info-icon-wrapper" title="Indirect parent-child relationship">
+                        <InfoIcon width={14} height={14} />
+                      </span>
+                    </span>
+                    <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, 'indirect', columns.length + 1)} />
+                  </div>
+                </th>
+                <th className="role-header" style={columnWidths['bind'] ? { width: columnWidths['bind'] } : undefined}>
+                  <div className="th-content">
+                    <span className="role-header-content">
+                      <span className="role-header-text">Bind</span>
+                      <span className="info-icon-wrapper" title="Bind content to segment">
+                        <InfoIcon width={14} height={14} />
+                      </span>
+                    </span>
+                    <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, 'bind', columns.length + 2)} />
+                  </div>
+                </th>
+              </>
             )}
             {showRemoveButton && <th className="remove-header"></th>}
           </tr>
@@ -411,7 +463,9 @@ const SegList: React.FC<SegListProps> = ({
                   ) : (
                     <>
                       {item.name}
-                      {item.relationToDirect === false && <span className="indirect-badge"> (indirect)</span>}
+                      {item.relationTypes && item.relationTypes.includes(1) && !item.relationTypes.includes(0) && (
+                        <span className="indirect-badge"> (indirect)</span>
+                      )}
                     </>
                   )}
                 </td>
@@ -452,6 +506,43 @@ const SegList: React.FC<SegListProps> = ({
                     onChange={() => onDirectParentSelect?.(item.id)}
                   />
                 </td>
+              )}
+              {showRoleSelection && (
+                <>
+                  <td className="role-cell">
+                    <input
+                      type="checkbox"
+                      checked={itemRoles[item.id]?.isDirect || false}
+                      onChange={(e) => onRoleChange?.(item.id, { 
+                        isDirect: e.target.checked,
+                        isIndirect: e.target.checked ? false : itemRoles[item.id]?.isIndirect || false, // Uncheck indirect if direct is checked
+                        isBind: itemRoles[item.id]?.isBind || false
+                      })}
+                    />
+                  </td>
+                  <td className="role-cell">
+                    <input
+                      type="checkbox"
+                      checked={itemRoles[item.id]?.isIndirect || false}
+                      onChange={(e) => onRoleChange?.(item.id, { 
+                        isDirect: e.target.checked ? false : itemRoles[item.id]?.isDirect || false, // Uncheck direct if indirect is checked
+                        isIndirect: e.target.checked,
+                        isBind: itemRoles[item.id]?.isBind || false
+                      })}
+                    />
+                  </td>
+                  <td className="role-cell">
+                    <input
+                      type="checkbox"
+                      checked={itemRoles[item.id]?.isBind || false}
+                      onChange={(e) => onRoleChange?.(item.id, { 
+                        isDirect: itemRoles[item.id]?.isDirect || false,
+                        isIndirect: itemRoles[item.id]?.isIndirect || false,
+                        isBind: e.target.checked 
+                      })}
+                    />
+                  </td>
+                </>
               )}
               {showRemoveButton && (
                 <td className="remove-cell">
