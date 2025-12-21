@@ -1,8 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react'
-import { segmentCache, segChildrenCache, contentCache, PathSegmentCache } from '../cache/cache'
+import { segmentCache, segChildrenCache, contentCache, PathSegmentCache, segRelationCache } from '../cache/cache'
 import { getSupabaseClient } from '../backend/supabase'
-import { getChildren, SegmentRelationType, getPathToRoot, getDirectParent } from '../backend/segment'
+import { getChildren, getRootItems, SegmentRelationType, getPathToRoot, getDirectParent, deleteRelation } from '../backend/segment'
 import { getPathSegment, getSegments, formatSegmentPath, formatContentPath } from './PathUtils'
 import PathBar from './PathBar'
 import { ListItem } from './SegList'
@@ -11,11 +11,10 @@ import SegView from '../view/SegView'
 import SegCreate from '../panel/SegCreate'
 import SegAdd from '../panel/SegAdd'
 import ModifyParent from '../panel/ModifyParent'
-import PathTabAllItem from './PathTabAllItem'
+import PathTabRoot from './PathTabRoot'
 import ContentView from '../view/ContentView'
-import Menu, { MenuItem, MenuItemSingle } from '@wwf971/react-comp-misc/src/menu/Menu'
-import { PathSegment } from '@wwf971/react-comp-misc/src/path/PathBar'
-import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { Menu, SpinningCircle } from '@wwf971/react-comp-misc'
+import type { MenuItem, MenuItemSingle, PathSegment } from '@wwf971/react-comp-misc'
 import './PathTab.css'
 
 /**
@@ -23,15 +22,16 @@ import './PathTab.css'
  */
 function getItemType(id: string): 'segment' | 'content' | null {
   // Must be in segment cache to exist
-  if (!segmentCache.has(id)) {
+  const segment = segmentCache.getSync(id)
+  if (!segment) {
     console.log(`[getItemType] ${id} not in segment cache`)
     return null
   }
   
-  // If also in content cache, it's content; otherwise segment
-  const isContent = contentCache.has(id)
-  console.log(`[getItemType] ${id}: segmentCache=${true}, contentCache=${isContent} → ${isContent ? 'content' : 'segment'}`)
-  return isContent ? 'content' : 'segment'
+  // Use isContent field from segment cache
+  const type = segment.isContent ? 'content' : 'segment'
+  console.log(`[getItemType] ${id}: isContent=${segment.isContent} → ${type}`)
+  return type
 }
 
 /**
@@ -455,6 +455,16 @@ const PathTab: React.FC<PathTabProps> = ({
         },
         {
           type: 'item',
+          name: 'Modify Parent',
+          data: { action: 'modifyParent', itemId: contextMenu.itemId, itemType: 'content' }
+        },
+        {
+          type: 'item',
+          name: 'Remove From Parent',
+          data: { action: 'removeFromParent', itemId: contextMenu.itemId, itemType: 'content' }
+        },
+        {
+          type: 'item',
           name: 'Delete',
           data: { action: 'delete', itemId: contextMenu.itemId, itemType: 'content' }
         }
@@ -476,6 +486,11 @@ const PathTab: React.FC<PathTabProps> = ({
             type: 'item',
             name: 'Rename',
             data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'segment' }
+          },
+          {
+            type: 'item',
+            name: 'Modify Parent',
+            data: { action: 'modifyParent', itemId: contextMenu.itemId, itemType: 'segment' }
           },
           {
             type: 'item',
@@ -550,8 +565,8 @@ const PathTab: React.FC<PathTabProps> = ({
    * Handle menu item click
    */
   const handleMenuItemClick = (item: MenuItemSingle) => {
-    const { action, itemId, contentType } = item.data || {}
-    console.log(`[PathTab] Menu item clicked:`, { action, itemId, contentType })
+    const { action, itemId, itemType, contentType } = item.data || {}
+    console.log(`[PathTab] Menu item clicked:`, { action, itemId, itemType, contentType })
     
     if (action === 'viewDetails' && itemId) {
       handleItemDoubleClick(itemId, 'content')
@@ -564,6 +579,12 @@ const PathTab: React.FC<PathTabProps> = ({
         setAddContentParent({ id: itemId, name: segment.name })
         setShowAddContentPanel(true)
       }
+    } else if (action === 'modifyParent' && itemId) {
+      // Get item name from cache
+      const item = items.find(i => i.id === itemId)
+      const itemName = item?.name || getItemName(itemId) || '(unnamed)'
+      setModifyParentContent({ id: itemId, name: itemName })
+      setShowModifyParentPanel(true)
     } else if (action === 'createSegment') {
       handleCreateFromMenu('path')
     } else if (action === 'createContent') {
@@ -573,6 +594,10 @@ const PathTab: React.FC<PathTabProps> = ({
     } else if (action === 'rename' && itemId) {
       setRenamingItemId(itemId)
       setRenamingClickPos(contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null)
+    } else if (action === 'removeFromParent' && itemId) {
+      console.log(`[PathTab] Triggering remove from parent for ${itemId}`)
+      handleRemoveFromParent(itemId)
+      return
     } else if (action === 'delete' && itemId) {
       console.log(`[PathTab] Triggering delete for ${itemId}`)
       handleDelete(itemId)
@@ -593,6 +618,77 @@ const PathTab: React.FC<PathTabProps> = ({
     console.log(`[PathTab] Setting delete confirm modal for ${itemType}: "${itemName}"`)
     setDeleteConfirm({ itemId, itemName })
     handleCloseContextMenu()
+  }
+
+  /**
+   * Handle remove from parent (removes all relationships with current parent)
+   */
+  const handleRemoveFromParent = async (contentId: string) => {
+    console.log(`[PathTab] handleRemoveFromParent called for ${contentId}`)
+    
+    // Get current parent segment
+    const currentParentId = data.currentPath[data.currentPath.length - 1]
+    if (!currentParentId) {
+      console.error('[PathTab] No current parent segment')
+      setErrorMessage('Cannot remove: no parent segment')
+      handleCloseContextMenu()
+      return
+    }
+    
+    const item = items.find(item => item.id === contentId)
+    const itemName = item?.name || 'this item'
+    
+    // Confirm removal
+    if (!confirm(`Remove "${itemName}" from current parent?\n\nThis will remove all relationships (direct, indirect, bind) with the current parent segment, but the content itself will not be deleted.`)) {
+      handleCloseContextMenu()
+      return
+    }
+    
+    try {
+      setIsDeleting(true)
+      
+      // Load all relationships to find what exists
+      await segRelationCache.loadAsChild(contentId)
+      
+      // Check and delete each relationship type with current parent
+      const directParents = segRelationCache.getParents(contentId, SegmentRelationType.PARENT_CHILD_DIRECT) || []
+      const indirectParents = segRelationCache.getParents(contentId, SegmentRelationType.PARENT_CHILD_INDIRECT) || []
+      const bindParents = segRelationCache.getParents(contentId, SegmentRelationType.PARENT_CHILD_BIND) || []
+      
+      let deletedCount = 0
+      
+      if (directParents.includes(currentParentId)) {
+        await deleteRelation(currentParentId, contentId, SegmentRelationType.PARENT_CHILD_DIRECT)
+        deletedCount++
+        console.log('[PathTab] ✅ Removed direct relationship')
+      }
+      
+      if (indirectParents.includes(currentParentId)) {
+        await deleteRelation(currentParentId, contentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+        deletedCount++
+        console.log('[PathTab] ✅ Removed indirect relationship')
+      }
+      
+      if (bindParents.includes(currentParentId)) {
+        await deleteRelation(currentParentId, contentId, SegmentRelationType.PARENT_CHILD_BIND)
+        deletedCount++
+        console.log('[PathTab] ✅ Removed bind relationship')
+      }
+      
+      if (deletedCount === 0) {
+        setErrorMessage('No relationships found with current parent')
+      } else {
+        console.log(`[PathTab] ✅ Removed ${deletedCount} relationship(s) with parent ${currentParentId}`)
+        // Reload items to reflect changes
+        await loadItems()
+      }
+    } catch (err: any) {
+      console.error('[PathTab] Error removing from parent:', err)
+      setErrorMessage(err.message || 'Failed to remove from parent')
+    } finally {
+      setIsDeleting(false)
+      handleCloseContextMenu()
+    }
   }
 
   /**
@@ -626,8 +722,17 @@ const PathTab: React.FC<PathTabProps> = ({
       if (result.code === 0) {
         console.log(`[PathTab] ✅ Deleted segment ${itemId} with all relations`)
         
-        // Reload items
-        await loadItems()
+        // Check if deleted segment is in current path
+        const deletedIndex = data.currentPath.indexOf(itemId)
+        if (deletedIndex !== -1) {
+          // We're viewing the deleted segment or its children - navigate to parent
+          console.log(`[PathTab] Deleted segment is in current path, navigating to parent`)
+          const newPath = data.currentPath.slice(0, deletedIndex)
+          setData({ ...data, currentPath: newPath })
+        } else {
+          // Just reload items in current view
+          await loadItems()
+        }
       }
     } else {
       // Delete content
@@ -836,8 +941,9 @@ const PathTab: React.FC<PathTabProps> = ({
                   Modify Parent Relationships for: <strong>{modifyParentContent.name}</strong>
                 </div>
                 <ModifyParent
-                  contentId={modifyParentContent.id}
-                  contentName={modifyParentContent.name}
+                  itemId={modifyParentContent.id}
+                  itemName={modifyParentContent.name}
+                  itemType="content"
                   onModified={() => {
                     setShowModifyParentPanel(false)
                     setModifyParentContent(null)
@@ -931,7 +1037,7 @@ const PathTab: React.FC<PathTabProps> = ({
     
     return (
       <>
-        <PathTabAllItem
+        <PathTabRoot
           items={items}
           loading={loading}
           error={error}
@@ -943,6 +1049,7 @@ const PathTab: React.FC<PathTabProps> = ({
           onRenameSubmit={handleRenameSubmit}
           onRenameCancel={handleRenameCancel}
           onRetry={loadItems}
+          onItemCreated={loadItems}
         />
         
         {/* Context Menu */}
@@ -1067,6 +1174,27 @@ const PathTab: React.FC<PathTabProps> = ({
               onCancel={() => {
                 setShowAddContentPanel(false)
                 setAddContentParent(null)
+              }}
+            />
+          </>
+        ) : showModifyParentPanel && modifyParentContent ? (
+          <>
+            <div className="path-tab-description">
+              Modify Parent Relationships for: <strong>{modifyParentContent.name}</strong>
+            </div>
+            <ModifyParent
+              itemId={modifyParentContent.id}
+              itemName={modifyParentContent.name}
+              itemType={getItemType(modifyParentContent.id) || 'content'}
+              onModified={() => {
+                setShowModifyParentPanel(false)
+                setModifyParentContent(null)
+                loadPath()  // Reload path in case relationships changed
+                loadItems()  // Reload items
+              }}
+              onCancel={() => {
+                setShowModifyParentPanel(false)
+                setModifyParentContent(null)
               }}
             />
           </>

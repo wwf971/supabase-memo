@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState } from 'react'
-import TabsOnTop from '@wwf971/react-comp-misc/src/layout/tab/TabsOnTop'
+import { TabsOnTop } from '@wwf971/react-comp-misc'
 import PathTab, { PathTabData } from './PathTab'
 import './PathManage.css'
 

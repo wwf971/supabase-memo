@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-// @ts-ignore
-import { SpinningCircle } from '../../../../react-comp-misc/src/icon/Icon'
+import { SpinningCircle, TabsOnTop } from '@wwf971/react-comp-misc'
+import '@wwf971/react-comp-misc/src/layout/tab/TabsOnTop.css'
 import './TestPythonServer.css'
 
 interface RequestLog {
@@ -20,10 +20,12 @@ const TestPythonServer: React.FC = () => {
   const [getToken, setGetToken] = useState('example_token')
   const [postToken, setPostToken] = useState('example_post_token')
   const [path, setPath] = useState('/')
+  const [treePath, setTreePath] = useState('/')
   const [postData, setPostData] = useState('{\n  "test": "data"\n}')
   const [loading, setLoading] = useState(false)
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null)
+  const abortControllerRef = React.useRef<AbortController | null>(null)
 
   const serverUrl = `${serverHost}:${serverPort}`
 
@@ -32,10 +34,22 @@ const TestPythonServer: React.FC = () => {
     setSelectedLogIndex(0)
   }
 
-  const sendGetRequest = async () => {
+  const abortRequest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+  }
+
+  const sendGetRequest = async (usePath: string = path, extraParams: string = '') => {
     setLoading(true)
     const timestamp = new Date().toLocaleTimeString()
-    const url = `${serverUrl}${path}?token=${getToken}`
+    const url = `${serverUrl}${usePath}?token=${getToken}${extraParams}`
+
+    // Create abort controller with 20 second timeout
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
 
     try {
       const response = await fetch(url, {
@@ -43,7 +57,10 @@ const TestPythonServer: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       })
+
+      clearTimeout(timeoutId)
 
       const contentType = response.headers.get('Content-Type') || ''
       const isImage = contentType.startsWith('image/')
@@ -67,17 +84,24 @@ const TestPythonServer: React.FC = () => {
         isImage,
       })
     } catch (error: any) {
+      clearTimeout(timeoutId)
+      const isAborted = error.name === 'AbortError'
       addLog({
         timestamp,
         method: 'GET',
         url,
         status: null,
         response: '',
-        error: error.message || 'Network error',
+        error: isAborted ? 'Request aborted (timeout or manual cancellation)' : (error.message || 'Network error'),
       })
     } finally {
       setLoading(false)
+      abortControllerRef.current = null
     }
+  }
+
+  const sendTreeRequest = async () => {
+    await sendGetRequest(treePath, '&fetch_type=tree')
   }
 
   const sendPostRequest = async () => {
@@ -85,11 +109,17 @@ const TestPythonServer: React.FC = () => {
     const timestamp = new Date().toLocaleTimeString()
     const url = `${serverUrl}/api/test?token=${postToken}`
 
+    // Create abort controller with 20 second timeout
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
+
     try {
       let parsedData: any
       try {
         parsedData = JSON.parse(postData)
       } catch {
+        clearTimeout(timeoutId)
         throw new Error('Invalid JSON in POST data')
       }
 
@@ -99,7 +129,10 @@ const TestPythonServer: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(parsedData),
+        signal: controller.signal,
       })
+
+      clearTimeout(timeoutId)
 
       const data = await response.text()
       
@@ -111,16 +144,19 @@ const TestPythonServer: React.FC = () => {
         response: data,
       })
     } catch (error: any) {
+      clearTimeout(timeoutId)
+      const isAborted = error.name === 'AbortError'
       addLog({
         timestamp,
         method: 'POST',
         url,
         status: null,
         response: '',
-        error: error.message || 'Network error',
+        error: isAborted ? 'Request aborted (timeout or manual cancellation)' : (error.message || 'Network error'),
       })
     } finally {
       setLoading(false)
+      abortControllerRef.current = null
     }
   }
 
@@ -187,8 +223,10 @@ const TestPythonServer: React.FC = () => {
         </div>
       </div>
 
-      <div className="request-section">
-        <h3>GET Request</h3>
+      <TabsOnTop defaultTab="single">
+        <TabsOnTop.Tab label="Single">
+          <div className="request-section">
+            <h3>GET Request</h3>
         <div className="form-row">
           <div className="form-group flex-2">
             <label htmlFor="path">Path</label>
@@ -214,23 +252,31 @@ const TestPythonServer: React.FC = () => {
           </div>
           <div className="button-wrapper">
             <button
-              onClick={sendGetRequest}
+              onClick={() => sendGetRequest()}
               disabled={loading}
               className="action-button primary"
             >
               {loading ? 'Sending...' : 'Send GET'}
             </button>
             {loading && (
-              <span className="spinner-inline">
-                <SpinningCircle width={16} height={16} color="#007bff" />
-              </span>
+              <>
+                <span className="spinner-inline">
+                  <SpinningCircle width={16} height={16} color="#007bff" />
+                </span>
+                <button
+                  onClick={abortRequest}
+                  className="action-button secondary small"
+                >
+                  Abort
+                </button>
+              </>
             )}
           </div>
         </div>
-      </div>
+          </div>
 
-      <div className="request-section">
-        <h3>POST Request</h3>
+          <div className="request-section">
+            <h3>POST Request</h3>
         <div className="form-row">
           <div className="form-group flex-1">
             <label htmlFor="post-token">Token</label>
@@ -252,9 +298,17 @@ const TestPythonServer: React.FC = () => {
               {loading ? 'Sending...' : 'Send POST'}
             </button>
             {loading && (
-              <span className="spinner-inline">
-                <SpinningCircle width={16} height={16} color="#007bff" />
-              </span>
+              <>
+                <span className="spinner-inline">
+                  <SpinningCircle width={16} height={16} color="#007bff" />
+                </span>
+                <button
+                  onClick={abortRequest}
+                  className="action-button secondary small"
+                >
+                  Abort
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -269,7 +323,51 @@ const TestPythonServer: React.FC = () => {
             rows={6}
           />
         </div>
-      </div>
+          </div>
+        </TabsOnTop.Tab>
+
+        <TabsOnTop.Tab label="Tree">
+          <div className="request-section">
+            <h3>Tree Request</h3>
+            <p className="section-description">Fetch recursive tree structure with all direct children</p>
+            <div className="form-row">
+              <div className="form-group flex-2">
+                <label htmlFor="tree-path">Path (must end with /)</label>
+                <input
+                  id="tree-path"
+                  type="text"
+                  value={treePath}
+                  onChange={(e) => setTreePath(e.target.value)}
+                  placeholder="/segment/"
+                  className="input-field"
+                />
+              </div>
+              <div className="button-wrapper">
+                <button
+                  onClick={sendTreeRequest}
+                  disabled={loading}
+                  className="action-button primary"
+                >
+                  {loading ? 'Fetching...' : 'Fetch Tree'}
+                </button>
+                {loading && (
+                  <>
+                    <span className="spinner-inline">
+                      <SpinningCircle width={16} height={16} color="#007bff" />
+                    </span>
+                    <button
+                      onClick={abortRequest}
+                      className="action-button secondary small"
+                    >
+                      Abort
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </TabsOnTop.Tab>
+      </TabsOnTop>
 
       <div className="logs-section">
         <div className="logs-header">

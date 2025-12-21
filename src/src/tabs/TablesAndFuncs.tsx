@@ -13,16 +13,20 @@ import {
   createContentBinaryTable
 } from '../backend/contentSql'
 import {
+  createCheckFunctionExistsFunction,
+  createGetRootItemsFunction,
+  createGetPathToRootFunction,
   createGetContentByPathFunction,
   createGetSegmentChildrenFunction,
-  createDeleteSegmentFunction
+  createDeleteSegmentFunction,
+  createGetSegmentTreeFunction
 } from '../backend/functionSql'
 import { getSupabaseClient } from '../backend/supabase'
 import TableManage from './TableManage'
 import FunctionManage from './FunctionManage'
-import TabsOnTop from '@wwf971/react-comp-misc/src/layout/tab/TabsOnTop'
+import { TabsOnTop } from '@wwf971/react-comp-misc'
 import '@wwf971/react-comp-misc/src/layout/tab/TabsOnTop.css'
-import './TablesStatus.css'
+import './TablesAndFuncs.css'
 
 // Table configuration
 const tableConfigs = [
@@ -71,8 +75,27 @@ const tableConfigs = [
 // Function configurations
 const functionConfigs = [
   {
+    name: 'check_function_exists',
+    description: 'Utility function to check if other functions exist - queries pg_proc system catalog (required for function management)',
+    createSQL: createCheckFunctionExistsFunction(),
+    dropSQL: 'DROP FUNCTION IF EXISTS check_function_exists(TEXT);',
+    isUtility: true
+  },
+  {
+    name: 'get_root_items',
+    description: 'Get all root-level segments and content - returns all items without direct parent relationships in a single query',
+    createSQL: createGetRootItemsFunction(),
+    dropSQL: 'DROP FUNCTION IF EXISTS get_root_items();'
+  },
+  {
+    name: 'get_path_to_root',
+    description: 'Get path to root for a segment - uses recursive CTE to traverse parent chain in a single query, returns array of segment IDs',
+    createSQL: createGetPathToRootFunction(),
+    dropSQL: 'DROP FUNCTION IF EXISTS get_path_to_root(TEXT);'
+  },
+  {
     name: 'get_content_by_path',
-    description: 'Get content by path array - returns content data for a given path (handles empty name content)',
+    description: 'Get content by path array - returns content data for a given path (handles bind relationships)',
     createSQL: createGetContentByPathFunction(),
     dropSQL: 'DROP FUNCTION IF EXISTS get_content_by_path(TEXT[]);'
   },
@@ -87,6 +110,12 @@ const functionConfigs = [
     description: 'Delete segment and all its relations - removes segment and all relations where it appears as parent or child',
     createSQL: createDeleteSegmentFunction(),
     dropSQL: 'DROP FUNCTION IF EXISTS delete_segment_with_relations(TEXT);'
+  },
+  {
+    name: 'get_segment_tree',
+    description: 'Get full tree structure from a segment - recursively returns all direct children as nested JSON',
+    createSQL: createGetSegmentTreeFunction(),
+    dropSQL: 'DROP FUNCTION IF EXISTS get_segment_tree(TEXT);'
   }
 ]
 
@@ -161,13 +190,14 @@ const SQLModal: React.FC<SQLModalProps> = ({ isOpen, onClose, title, sql, dropSQ
   )
 }
 
-const TablesStatus: React.FC = () => {
+const TablesAndFuncs: React.FC = () => {
   const [tableStatus, setTableStatus] = useState<Record<string, boolean | null>>(
     Object.fromEntries(tableConfigs.map(config => [config.name, null]))
   )
-  const [functionStatus, setFunctionManage] = useState<Record<string, boolean | null>>(
+  const [functionManage, setFunctionManage] = useState<Record<string, boolean | null | 'no-checker'>>(
     Object.fromEntries(functionConfigs.map(config => [config.name, null]))
   )
+  const [checkFunctionExists, setCheckFunctionExists] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [modalData, setModalData] = useState<{name: string; sql: string; dropSQL?: string} | null>(null)
 
@@ -185,36 +215,63 @@ const TablesStatus: React.FC = () => {
     }
   }
 
-  const checkFunctionExists = async (functionName: string): Promise<boolean> => {
+  // Check if check_function_exists utility function exists (using tricky RPC method)
+  const checkUtilityFunctionExists = async (): Promise<boolean> => {
     try {
       const client = getSupabaseClient()
       
-      // Try calling the function with minimal/no parameters
-      // The goal is to check the error response
-      try {
-        // Try with empty object (works for most functions)
-        await client.rpc(functionName, {})
-      } catch (error: any) {
-        // Check the error to determine if function exists
-        const errorMsg = error?.message || ''
+      // Try calling check_function_exists with a test parameter
+      const { error } = await client.rpc('check_function_exists', { function_name: 'test' })
+      
+      if (error) {
         const errorCode = error?.code || ''
+        const errorMsg = error?.message || ''
         
-        // 404 or PGRST202 means function doesn't exist
-        if (errorCode === 'PGRST202' || errorCode === '404' || errorMsg.includes('not found')) {
-          console.log(`[checkFunctionExists] Function ${functionName} does not exist`)
+        console.log(`[checkUtilityFunctionExists] Error:`, { errorCode, errorMsg })
+        
+        // PGRST202 = Could not find the function
+        if (errorCode === 'PGRST202' || 
+            errorMsg.includes('Could not find the function')) {
+          console.log(`[checkUtilityFunctionExists] check_function_exists MISSING`)
           return false
         }
         
-        // Any other error (parameter mismatch, etc.) means function exists but we called it wrong
-        console.log(`[checkFunctionExists] Function ${functionName} exists (got error: ${errorCode})`)
+        // Any other error means function exists
+        console.log(`[checkUtilityFunctionExists] check_function_exists EXISTS`)
         return true
       }
       
-      // If no error, function exists and executed successfully
+      console.log(`[checkUtilityFunctionExists] check_function_exists EXISTS (successful call)`)
       return true
     } catch (err) {
-      console.error(`[checkFunctionExists] Error checking ${functionName}:`, err)
+      console.error(`[checkUtilityFunctionExists] Unexpected error:`, err)
       return false
+    }
+  }
+  
+  // Check if a specific function exists (using check_function_exists utility)
+  const checkFunctionExistsViaUtility = async (functionName: string): Promise<boolean | 'no-checker'> => {
+    try {
+      const client = getSupabaseClient()
+      
+      // First verify check_function_exists is available
+      if (checkFunctionExists === false) {
+        return 'no-checker'
+      }
+      
+      const { data, error } = await client.rpc('check_function_exists', { function_name: functionName })
+      
+      if (error) {
+        console.error(`[checkFunctionExistsViaUtility] Error checking ${functionName}:`, error)
+        return 'no-checker'
+      }
+      
+      const exists = data === true
+      console.log(`[checkFunctionExistsViaUtility] Function ${functionName}: ${exists ? 'EXISTS' : 'MISSING'}`)
+      return exists
+    } catch (err) {
+      console.error(`[checkFunctionExistsViaUtility] Unexpected error:`, err)
+      return 'no-checker'
     }
   }
 
@@ -222,9 +279,19 @@ const TablesStatus: React.FC = () => {
     setFunctionManage(prev => ({ ...prev, [functionName]: null }))
     
     const startTime = Date.now()
-    const exists = await checkFunctionExists(functionName)
-    const elapsed = Date.now() - startTime
+    let exists: boolean | 'no-checker'
     
+    if (functionName === 'check_function_exists') {
+      // Special case: check the utility function itself
+      const utilityExists = await checkUtilityFunctionExists()
+      setCheckFunctionExists(utilityExists)
+      exists = utilityExists
+    } else {
+      // Check other functions using the utility
+      exists = await checkFunctionExistsViaUtility(functionName)
+    }
+    
+    const elapsed = Date.now() - startTime
     if (elapsed < 200) {
       await new Promise(resolve => setTimeout(resolve, 200 - elapsed))
     }
@@ -256,12 +323,24 @@ const TablesStatus: React.FC = () => {
       }
     })
 
-    // Check all functions in parallel
-    const functionPromises = functionConfigs.map(async (config) => {
-      const exists = await checkFunctionExists(config.name)
-      setFunctionManage(prev => ({ ...prev, [config.name]: exists }))
-      return { name: config.name, exists }
-    })
+    // Check utility function first
+    const utilityExists = await checkUtilityFunctionExists()
+    setCheckFunctionExists(utilityExists)
+    setFunctionManage(prev => ({ ...prev, ['check_function_exists']: utilityExists }))
+    
+    // Check all other functions in parallel
+    const functionPromises = functionConfigs
+      .filter(config => config.name !== 'check_function_exists')
+      .map(async (config) => {
+        if (!utilityExists) {
+          setFunctionManage(prev => ({ ...prev, [config.name]: 'no-checker' }))
+          return { name: config.name, exists: 'no-checker' as const }
+        }
+        
+        const exists = await checkFunctionExistsViaUtility(config.name)
+        setFunctionManage(prev => ({ ...prev, [config.name]: exists }))
+        return { name: config.name, exists }
+      })
 
     // Wait for all checks to complete
     const tableResults = await Promise.all(tablePromises)
@@ -322,9 +401,10 @@ const TablesStatus: React.FC = () => {
                 key={config.name}
                 functionName={config.name}
                 description={config.description}
-                exists={functionStatus[config.name]}
+                exists={functionManage[config.name]}
                 createSQL={config.createSQL}
                 dropSQL={config.dropSQL}
+                isUtility={config.isUtility}
                 onRefreshSingle={() => handleRefreshSingleFunction(config.name)}
                 onShowSQL={(sql, dropSQL) => setModalData({ name: config.name, sql, dropSQL })}
               />
@@ -344,5 +424,5 @@ const TablesStatus: React.FC = () => {
   )
 }
 
-export default TablesStatus
+export default TablesAndFuncs
 

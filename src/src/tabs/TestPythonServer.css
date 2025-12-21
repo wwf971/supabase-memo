@@ -79,7 +79,7 @@
 
 .input-field {
   width: 100%;
-  padding: 6px 8px;
+  padding: 4px 6px;
   border: 1px solid #ced4da;
   font-size: 13px;
   font-family: monospace;
@@ -101,7 +101,7 @@
 /* Buttons */
 .button-wrapper {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
   margin-top: 21px; /* Match label height + margin (13px font + 4px margin + padding) */
 }
@@ -139,7 +139,7 @@
 }
 
 .action-button.small {
-  padding: 4px 8px;
+  padding: 6px 8px;
   font-size: 12px;
 }
 
@@ -167,7 +167,7 @@
   flex: 1;
   overflow-y: auto;
   background: white;
-  padding: 16px;
+  padding: 0px;
 }
 
 .log-item {
@@ -315,7 +315,7 @@
 
 .response-body pre {
   margin: 0;
-  padding: 12px;
+  padding: 6px;
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   font-size: 12px;
@@ -326,7 +326,7 @@
 }
 
 .error-message {
-  padding: 12px;
+  padding: 6px;
   background: #f8d7da;
   border: 1px solid #f5c6cb;
   color: #721c24;

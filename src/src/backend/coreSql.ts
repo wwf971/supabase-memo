@@ -81,10 +81,12 @@ export function createSegmentTable(): string {
 -- Path Segment for hierarchical content structure
 -- Example: /aa/bb/cc/dd has 4 segments: aa, bb, cc, dd
 -- Relationships are stored in segment_relation table
+-- Both pure segments and content items have entries here (for name storage)
 
 CREATE TABLE IF NOT EXISTS segment (
   id TEXT PRIMARY KEY,                 -- ID from id_09ae
   name TEXT NOT NULL,                  -- Current name (can be renamed)
+  "isContent" BOOLEAN NOT NULL DEFAULT false,  -- true if this is a content item, false if pure segment
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
   metadata JSONB DEFAULT '{}'::jsonb,
@@ -94,6 +96,7 @@ CREATE TABLE IF NOT EXISTS segment (
 
 -- Indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_segment_name ON segment(name);
+CREATE INDEX IF NOT EXISTS idx_segment_isContent ON segment("isContent");
 
 -- Trigger for updated_at
 CREATE TRIGGER update_segment_updated_at 

@@ -86,6 +86,10 @@
 .name-cell {
   font-weight: 500;
   color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
 }
 
 .name-cell-rename-wrapper {
@@ -138,12 +142,20 @@
   color: #999;
   font-size: 12px;
   font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
 }
 
 .value-cell {
   color: #495057;
   font-family: monospace;
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
 }
 
 /* Row styling based on type */

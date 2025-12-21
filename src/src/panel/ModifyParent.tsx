@@ -2,26 +2,37 @@
 import React, { useState, useEffect } from 'react'
 import SegList, { ListItem, ItemRole } from '../path/SegList'
 import SegSelect, { SelectItem } from '../path/SegSelect'
-import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { SpinningCircle } from '@wwf971/react-comp-misc'
 import { createRelation, deleteRelation, SegmentRelationType, getParents } from '../backend/segment'
 import { getSupabaseClient } from '../backend/supabase'
-import { segChildrenCache, segmentCache, contentCache, segPathCache } from '../cache/cache'
+import { segChildrenCache, segmentCache, contentCache, segPathCache, segRelationCache } from '../cache/cache'
 import { getSegments } from '../path/PathUtils'
 import './AddContent.css'  // Reuse AddContent styles
 
 interface ModifyParentProps {
-  contentId: string  // The content whose parents we're modifying
-  contentName: string
+  itemId: string  // The segment/content whose parents we're modifying
+  itemName: string
+  itemType?: 'segment' | 'content'  // Optional, for display purposes
   onModified?: () => void
   onCancel?: () => void
+  // Legacy props for backward compatibility
+  contentId?: string
+  contentName?: string
 }
 
 const ModifyParent: React.FC<ModifyParentProps> = ({
-  contentId,
-  contentName,
+  itemId: propsItemId,
+  itemName: propsItemName,
+  itemType,
   onModified,
-  onCancel
+  onCancel,
+  // Legacy props
+  contentId,
+  contentName
 }) => {
+  // Support both new and legacy props
+  const itemId = propsItemId || contentId || ''
+  const itemName = propsItemName || contentName || ''
   // Parent search and selection
   const [parentSearchQuery, setParentSearchQuery] = useState('')
   const [parentSearchResults, setParentSearchResults] = useState<ListItem[]>([])
@@ -42,7 +53,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
   // Load existing parents on mount
   useEffect(() => {
     loadExistingParents()
-  }, [contentId])
+  }, [itemId])
 
   const loadExistingParents = async () => {
     setIsLoading(true)
@@ -55,7 +66,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
       const { data: relations, error: relError } = await client
         .from('segment_relation')
         .select('segment_1, type')
-        .eq('segment_2', contentId)
+        .eq('segment_2', itemId)
         .in('type', [0, 1, 2])  // direct, indirect, bind
 
       if (relError) throw relError
@@ -183,20 +194,22 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
       
       // Delete all relations for removed parents
       for (const parentId of removedParentIds) {
-        const { error: deleteError } = await client
-          .from('segment_relation')
-          .delete()
-          .eq('segment_1', parentId)
-          .eq('segment_2', contentId)
-
-        if (deleteError) {
-          console.error('[ModifyParent] Failed to delete relations for parent:', parentId, deleteError)
-        } else {
-          console.log('[ModifyParent] ✅ Deleted all relations for parent:', parentId)
-          // Invalidate cache
-          segChildrenCache.delete(parentId, SegmentRelationType.PARENT_CHILD_DIRECT)
-          segChildrenCache.delete(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
-          segChildrenCache.delete(parentId, SegmentRelationType.PARENT_CHILD_BIND)
+        // Get existing relations for this parent
+        const originalRole = originalRelations[parentId]
+        if (originalRole) {
+          // Delete each relation type that existed
+          if (originalRole.isDirect) {
+            await deleteRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_DIRECT)
+            console.log('[ModifyParent] ✅ Deleted direct relation:', parentId)
+          }
+          if (originalRole.isIndirect) {
+            await deleteRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+            console.log('[ModifyParent] ✅ Deleted indirect relation:', parentId)
+          }
+          if (originalRole.isBind) {
+            await deleteRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_BIND)
+            console.log('[ModifyParent] ✅ Deleted bind relation:', parentId)
+          }
         }
       }
 
@@ -213,20 +226,21 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
           
           // Delete existing relations for this parent
           if (originalRole) {
-            const { error: deleteError } = await client
-              .from('segment_relation')
-              .delete()
-              .eq('segment_1', parentId)
-              .eq('segment_2', contentId)
-
-            if (deleteError) {
-              console.error('[ModifyParent] Failed to delete old relations:', deleteError)
+            if (originalRole.isDirect) {
+              await deleteRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_DIRECT)
             }
+            if (originalRole.isIndirect) {
+              await deleteRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+            }
+            if (originalRole.isBind) {
+              await deleteRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_BIND)
+            }
+            console.log('[ModifyParent] Deleted old relations for parent:', parentId)
           }
 
-          // Handle direct parent logic (only one content can have this parent as direct)
+          // Handle direct parent logic (only one item can have this parent as direct)
           if (currentRole.isDirect) {
-            const existingDirectResult = await getParents(contentId, SegmentRelationType.PARENT_CHILD_DIRECT)
+            const existingDirectResult = await getParents(itemId, SegmentRelationType.PARENT_CHILD_DIRECT)
             
             if (existingDirectResult.code === 0 && existingDirectResult.data && existingDirectResult.data.length > 0) {
               for (const oldParentId of existingDirectResult.data) {
@@ -236,7 +250,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
                     .from('segment_relation')
                     .select('id')
                     .eq('segment_1', oldParentId)
-                    .eq('segment_2', contentId)
+                    .eq('segment_2', itemId)
                     .eq('type', SegmentRelationType.PARENT_CHILD_DIRECT)
 
                   if (oldRelations && oldRelations.length > 0) {
@@ -256,7 +270,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
 
           // Create direct relation if checked
           if (currentRole.isDirect) {
-            const result = await createRelation(parentId, contentId, SegmentRelationType.PARENT_CHILD_DIRECT)
+            const result = await createRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_DIRECT)
             if (result.code !== 0) {
               setError(`Failed to create direct relation: ${result.message}`)
               setIsSaving(false)
@@ -268,7 +282,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
 
           // Create indirect relation if checked
           if (currentRole.isIndirect) {
-            const result = await createRelation(parentId, contentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+            const result = await createRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_INDIRECT)
             if (result.code !== 0) {
               setError(`Failed to create indirect relation: ${result.message}`)
               setIsSaving(false)
@@ -280,7 +294,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
 
           // Create bind relation if checked
           if (currentRole.isBind) {
-            const result = await createRelation(parentId, contentId, SegmentRelationType.PARENT_CHILD_BIND)
+            const result = await createRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_BIND)
             if (result.code !== 0) {
               setError(`Failed to create bind relation: ${result.message}`)
               setIsSaving(false)
@@ -292,8 +306,8 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
         }
       }
 
-      // Invalidate path cache for this content
-      segPathCache.delete(contentId)
+      // Invalidate path cache for this item
+      segPathCache.delete(itemId)
 
       console.log('[ModifyParent] ✅ Successfully modified parent relationships')
       onModified?.()
@@ -325,7 +339,7 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
     <div className="add-content-panel">
       <div className="panel-header">
         <h3>Modify Parent Relationships</h3>
-        <p className="panel-subtitle">Content: {contentName || '(unnamed)'}</p>
+        <p className="panel-subtitle">{itemType === 'segment' ? 'Segment' : 'Item'}: {itemName || '(unnamed)'}</p>
       </div>
 
       <div className="panel-body">

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useEffect, useState } from 'react'
 import './ContentUploadProgress.css'
-import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { SpinningCircle } from '@wwf971/react-comp-misc'
 
 interface ContentUploadProgressProps {
   currentStep: number

@@ -358,22 +358,72 @@ def get_content_pg_function(segments: List[str]):
     except Exception as e:
         return {'code': -5, 'message': str(e)}
 
+def fetch_tree(segment_id):
+    """
+    Fetch full tree structure for a segment using PostgreSQL function
+    Returns nested JSON with all direct children recursively
+    """
+    try:
+        response = supabase.rpc('get_segment_tree', {'root_segment_id': segment_id}).execute()
+        
+        if response.data is not None:
+            return {
+                'code': 0,
+                'message': 'Tree fetched successfully',
+                'data': response.data
+            }
+        return {'code': -1, 'message': 'Failed to fetch tree'}
+    except Exception as e:
+        return {'code': -5, 'message': str(e)}
+
+    
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def handle_path(path):
     """Handle all path requests"""
     if not verify_token('GET'):
-        return jsonify({'error': 'Unauthorized', 'message': 'Invalid or missing token'}), 401
+        return jsonify({'code': -2, 'message': 'Invalid or missing token'}), 401
     
     if not supabase:
-        return jsonify({'error': 'Configuration error', 'message': 'Supabase client not initialized'}), 500
+        return jsonify({'code': -3, 'message': 'Supabase client not initialized'}), 500
     
     full_path = '/' + path if path else '/'
     segments, has_trailing_slash = parse_path(full_path)
     
-    print(f"[GET] {full_path} → segments={segments}, trailing_slash={has_trailing_slash}")
+    # Check for fetch_type parameter
+    fetch_type = request.args.get('fetch_type', 'normal')
+    
+    print(f"[GET] {full_path} → segments={segments}, trailing_slash={has_trailing_slash}, fetch_type={fetch_type}")
     
     try:
+        # Handle tree fetch request
+        if fetch_type == 'tree' and has_trailing_slash:
+            # Get segment ID by resolving path
+            if len(segments) == 0:
+                return jsonify({'code': -1, 'message': 'Cannot fetch tree for root'}), 400
+            
+            # Resolve path to get segment ID
+            segment_id = resolve_path_to_id(segments)
+            if not segment_id:
+                return jsonify({'code': -1, 'message': 'Segment not found'}), 404
+            
+            # Fetch tree structure
+            tree_result = fetch_tree(segment_id)
+            if tree_result['code'] < 0:
+                return jsonify({'code': tree_result['code'], 'message': tree_result.get('message', 'Failed to fetch tree')}), 500
+            
+            return jsonify({
+                'code': 0,
+                'message': 'Tree fetched successfully',
+                'data': {
+                    'type': 'segment_tree',
+                    'path': full_path,
+                    'segment_id': segment_id,
+                    'tree': tree_result.get('data', {})
+                }
+            })
+        
         # Trailing slash → treat as segment, return children
         if has_trailing_slash:
             # Try PostgreSQL function first
@@ -384,12 +434,20 @@ def handle_path(path):
                 result = get_children_multi_query(segments)
             
             if result['code'] < 0:
-                return jsonify({'error': 'Not found', 'message': result.get('message', 'Path does not exist')}), 404
+                return jsonify({'code': result['code'], 'message': result.get('message', 'Path does not exist')}), 404
             
             data = result.get('data', {})
-            response_data = {'type': 'segment_list', 'path': full_path, 'items': data.get('items', [])}
+            response_data = {
+                'code': 0,
+                'message': 'Children fetched successfully',
+                'data': {
+                    'type': 'segment_list',
+                    'path': full_path,
+                    'items': data.get('items', [])
+                }
+            }
             if 'segment_id' in data:
-                response_data['segment_id'] = data['segment_id']
+                response_data['data']['segment_id'] = data['segment_id']
             
             return jsonify(response_data)
         
@@ -403,7 +461,7 @@ def handle_path(path):
                 result = get_content_multi_query(segments)
             
             if result['code'] < 0:
-                return jsonify({'error': 'Not found', 'message': result.get('message', 'Content not found')}), 404
+                return jsonify({'code': result['code'], 'message': result.get('message', 'Content not found')}), 404
             
             data = result.get('data', {})
             content_type = data.get('content_type', 'text/plain')

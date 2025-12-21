@@ -1,11 +1,11 @@
 // @ts-nocheck
 import React, { useEffect, useState, useRef } from 'react'
 import { getContent, updateContent } from '../backend/content'
-import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { SpinningCircle, Menu } from '@wwf971/react-comp-misc'
+import type { MenuItem, MenuItemSingle } from '@wwf971/react-comp-misc'
 import ImageView from './ImageView'
 import PdfView from './PdfView'
 import Header from './Header'
-import Menu, { MenuItem, MenuItemSingle } from '@wwf971/react-comp-misc/src/menu/Menu'
 import './ContentView.css'
 
 interface ContentViewProps {

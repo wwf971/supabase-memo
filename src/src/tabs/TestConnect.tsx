@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
-// @ts-ignore - JSX file without type definitions
-import { EyeIcon, EyeOffIcon, SpinningCircle } from '../../../../react-comp-misc/src/icon/Icon'
+import { EyeIcon, EyeOffIcon, SpinningCircle } from '@wwf971/react-comp-misc'
 import { loadDefaultConfig, testConnection as testSupabaseConnection, initSupabase } from '../backend/supabase'
 import './TestConnect.css'
 

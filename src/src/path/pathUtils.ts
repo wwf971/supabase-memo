@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../backend/supabase'
 import { segmentCache, segRelationCache } from '../cache/cache'
-import { getPathToRoot, getDirectParent } from '../backend/segment'
+import { getPathToRoot, getPathToRootOptimized, getDirectParent } from '../backend/segment'
 
 export interface PathSegment {
   id: string
@@ -148,7 +148,8 @@ export async function deletePathSegment(id: string): Promise<{ code: number; mes
  * @returns Path string in format: /name1/name2/name3/
  */
 export async function formatSegmentPath(segmentId: string): Promise<string> {
-  const pathResult = await getPathToRoot(segmentId)
+  // Use optimized SQL function instead of multiple queries
+  const pathResult = await getPathToRootOptimized(segmentId)
   let pathStr = '/'
   
   if (pathResult.code === 0 && pathResult.data && pathResult.data.length > 0) {

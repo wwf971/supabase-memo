@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from 'react'
-import { ListItem } from '../path/SegList'
+import { ListItem, ItemRole } from '../path/SegList'
 import SegList from '../path/SegList'
 import './SegView.css'
 
@@ -45,6 +45,21 @@ const SegView: React.FC<SegViewProps> = ({
   const segmentCount = items.filter(item => item.type === 'segment').length
   const contentCount = items.filter(item => item.type === 'content').length
 
+  // Convert relationTypes array to ItemRole object for each item
+  const itemRoles = React.useMemo(() => {
+    const roles: Record<string, ItemRole> = {}
+    items.forEach(item => {
+      if (item.relationTypes && item.relationTypes.length > 0) {
+        roles[item.id] = {
+          isDirect: item.relationTypes.includes(0),
+          isIndirect: item.relationTypes.includes(1),
+          isBind: item.relationTypes.includes(2)
+        }
+      }
+    })
+    return roles
+  }, [items])
+
   return (
     <div className="seg-view">
       <div className="seg-view-header">
@@ -78,6 +93,9 @@ const SegView: React.FC<SegViewProps> = ({
           columns={['name', 'path', 'type']}
           colWidthRatio={colWidthRatio}
           onUpdateColWidthRatio={onUpdateColWidthRatio}
+          showRoleSelection={true}
+          itemRoles={itemRoles}
+          roleSelectionReadOnly={true}
         />
       </div>
     </div>

@@ -2,11 +2,14 @@
   background: #ffffff;
   border: 1px solid #dee2e6;
   margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
 }
 
 .table-card-header {
   padding: 12px;
   border-bottom: 1px solid #dee2e6;
+  flex-grow: 1;  /* Grow to fill available space */
 }
 
 .table-info {
@@ -77,6 +80,8 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  flex-shrink: 0;  /* Don't shrink */
+  flex-grow: 0;    /* Don't grow - stay natural height! */
 }
 
 .table-card-actions button {

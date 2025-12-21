@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { segmentCache, segPathCache } from '../cache/cache'
 import { getPathToRoot } from '../backend/segment'
 import { formatSegmentPath } from './pathUtils'
-import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { SpinningCircle } from '@wwf971/react-comp-misc'
 import './SegSelect.css'
 
 export interface SelectItem {

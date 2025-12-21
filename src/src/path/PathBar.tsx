@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React from 'react'
-import _PathBar, { PathSegment } from '@wwf971/react-comp-misc/src/path/PathBar'
+import { PathBar as _PathBar } from '@wwf971/react-comp-misc'
+import type { PathSegment } from '@wwf971/react-comp-misc'
 
 /**
  * PathBar - Simple wrapper around imported PathBar

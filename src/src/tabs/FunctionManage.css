@@ -2,11 +2,14 @@
 .function-card {
   background: #ffffff;
   border: 1px solid #dee2e6;
+  display: flex;
+  flex-direction: column;
 }
 
 .function-card-header {
   padding: 12px;
   border-bottom: 1px solid #dee2e6;
+  flex-grow: 1;  /* Grow to fill available space */
 }
 
 .function-info {
@@ -29,6 +32,17 @@
   background: #e9ecef;
   color: #495057;
   letter-spacing: 0.5px;
+}
+
+.utility-badge {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  background: #d1ecf1;
+  color: #0c5460;
+  letter-spacing: 0.5px;
+  cursor: help;
 }
 
 .function-name-status-group {
@@ -65,6 +79,13 @@
   color: #004085;
 }
 
+.function-status.no-checker-status {
+  color: #ff9800;
+  background: #fff3e0;
+  font-weight: 500;
+  cursor: help;
+}
+
 .function-description {
   margin: 0;
   font-size: 13px;
@@ -76,6 +97,9 @@
   padding: 8px 12px;
   display: flex;
   gap: 8px;
+  align-items: flex-start;
+  flex-shrink: 0;  /* Don't shrink */
+  flex-grow: 0;    /* Don't grow - stay natural height! */
 }
 
 .btn-view-sql {

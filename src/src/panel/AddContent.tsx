@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react'
 import SegList, { ListItem, ItemRole } from '../path/SegList'
 import SegSelect, { SelectItem } from '../path/SegSelect'
-import { SpinningCircle } from '@wwf971/react-comp-misc/src/icon/Icon'
+import { SpinningCircle } from '@wwf971/react-comp-misc'
 import { createRelation, SegmentRelationType, getParents } from '../backend/segment'
 import { getSupabaseClient } from '../backend/supabase'
 import { segChildrenCache, segmentCache, contentCache, segPathCache } from '../cache/cache'
@@ -48,22 +48,45 @@ const AddContent: React.FC<AddContentProps> = ({
       
       try {
         const client = getSupabaseClient()
-        const { data, error } = await client
-          .from('content')
-          .select('id, name, type_code, value')
+        
+        // Search segments where isContent=true and name matches
+        const { data: segments, error: segError } = await client
+          .from('segment')
+          .select('id, name')
+          .eq('isContent', true)
           .ilike('name', `%${contentSearchQuery}%`)
           .limit(20)
-
-        if (!error && data) {
-          const filtered: ListItem[] = data.map(item => ({
-            id: item.id,
-            name: item.name,
-            type: 'content' as const,
-            contentType: item.type_code,
-            value: item.value
-          }))
+        
+        if (segError || !segments || segments.length === 0) {
+          if (segError) console.error('[AddContent] Search error:', segError)
+          setContentSearchResults([])
+          setLoadingContentSearch(false)
+          return
+        }
+        
+        // Get content details for these IDs
+        const segmentIds = segments.map(s => s.id)
+        const { data: contentItems, error: contentError } = await client
+          .from('content')
+          .select('id, type_code, value')
+          .in('id', segmentIds)
+        
+        if (!contentError && contentItems) {
+          // Combine segment names with content data
+          const filtered: ListItem[] = contentItems.map(content => {
+            const segment = segments.find(s => s.id === content.id)
+            return {
+              id: content.id,
+              name: segment?.name || '(unnamed)',
+              type: 'content' as const,
+              contentType: content.type_code,
+              value: content.value
+            }
+          })
+          
           setContentSearchResults(filtered)
         } else {
+          console.error('[AddContent] Content fetch error:', contentError)
           setContentSearchResults([])
         }
       } catch (err) {
@@ -224,8 +247,13 @@ const AddContent: React.FC<AddContentProps> = ({
           console.log(`[AddContent] ✅ Created bind relation`)
         }
 
-        // Invalidate cache for parent's children
-        segChildrenCache.delete(parentSegmentId, relationType)
+        // Invalidate cache for parent's children based on created relations
+        if (role.isDirect) {
+          segChildrenCache.delete(parentSegmentId, SegmentRelationType.PARENT_CHILD_DIRECT)
+        }
+        if (role.isIndirect) {
+          segChildrenCache.delete(parentSegmentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+        }
         if (role.isBind) {
           segChildrenCache.delete(parentSegmentId, SegmentRelationType.PARENT_CHILD_BIND)
         }
@@ -279,25 +307,26 @@ const AddContent: React.FC<AddContentProps> = ({
             </div>
           )}
         </div>
+      </div>
 
-        <div className="selected-items-section">
-          <h4>Selected Content:</h4>
-          {selectedContent.length > 0 ? (
-            <SegList
-              items={selectedContent}
-              selectionMode={true}
-              columns={['name', 'type']}
-              showRoleSelection={true}
-              itemRoles={itemRoles}
-              onRoleChange={handleRoleChange}
-              showRemoveButton={true}
-              onItemRemove={handleRemoveContent}
-              padding="0"
-            />
-          ) : (
-            <div className="empty-selection">No content selected</div>
-          )}
-        </div>
+      {/* Selected Content */}
+      <div className="selected-items-section">
+        <h4>Selected Content:</h4>
+        {selectedContent.length > 0 ? (
+          <SegList
+            items={selectedContent}
+            selectionMode={true}
+            columns={['name', 'type']}
+            showRoleSelection={true}
+            itemRoles={itemRoles}
+            onRoleChange={handleRoleChange}
+            showRemoveButton={true}
+            onItemRemove={handleRemoveContent}
+            padding="0"
+          />
+        ) : (
+          <div className="empty-selection">No content selected</div>
+        )}
       </div>
 
       {/* Action Buttons */}

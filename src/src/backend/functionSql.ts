@@ -1,5 +1,93 @@
 // PostgreSQL function definitions for optimized queries
 
+/**
+ * Utility function to check if other functions exist
+ * This function is used by the UI to verify function existence
+ */
+export const createCheckFunctionExistsFunction = () => `-- Function: Check if a function exists
+-- Queries pg_proc system catalog to check if a function exists in public schema
+-- This is the definitive way to check function existence
+CREATE OR REPLACE FUNCTION check_function_exists(function_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND p.proname = function_name
+  );
+END;
+$$ LANGUAGE plpgsql STABLE;
+`
+
+/**
+ * Get all root-level segments and content in one query
+ * Returns all items that don't have a direct parent relationship
+ */
+export const createGetRootItemsFunction = () => `-- Function: Get all root-level segments and content
+-- Returns all segments/content without direct parent relationships
+-- Optimized to fetch all root items in a single query
+CREATE OR REPLACE FUNCTION get_root_items()
+RETURNS TABLE(
+  id TEXT,
+  name TEXT,
+  type_code INTEGER,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  is_content BOOLEAN
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    s.id,
+    s.name,
+    c.type_code,
+    s.created_at,
+    s.updated_at,
+    s."isContent" AS is_content
+  FROM segment s
+  LEFT JOIN content c ON c.id = s.id AND s."isContent" = true
+  WHERE NOT EXISTS (
+    SELECT 1 FROM segment_relation sr
+    WHERE sr.segment_2 = s.id AND sr.type = 0
+  )
+  ORDER BY s.name, s.created_at;
+END;
+$$ LANGUAGE plpgsql STABLE;
+`
+
+/**
+ * Get path to root for a segment in one query using recursive CTE
+ * Much more efficient than multiple sequential queries
+ */
+export const createGetPathToRootFunction = () => `-- Function: Get path to root for a segment
+-- Uses recursive CTE to traverse parent chain in a single query
+-- Returns array of segment IDs from root to the given segment
+CREATE OR REPLACE FUNCTION get_path_to_root(target_segment_id TEXT)
+RETURNS TEXT[] AS $$
+WITH RECURSIVE parent_chain AS (
+  -- Base case: start with target segment
+  SELECT 
+    target_segment_id AS id,
+    1 AS depth
+  
+  UNION ALL
+  
+  -- Recursive case: get direct parent
+  SELECT 
+    sr.segment_1 AS id,
+    pc.depth + 1 AS depth
+  FROM parent_chain pc
+  INNER JOIN segment_relation sr ON sr.segment_2 = pc.id
+  WHERE sr.type = 0  -- Direct parent relationship only
+    AND pc.depth < 100  -- Prevent infinite loops
+)
+SELECT array_agg(id ORDER BY depth DESC)
+FROM parent_chain;
+$$ LANGUAGE sql STABLE;
+`
+
 export const createGetContentByPathFunction = () => `-- Function: Get content by path
 -- Returns content data for a given path (e.g., ['name', 'en'])
 -- New logic: Uses bind relationship (type=2) instead of empty name convention
@@ -226,4 +314,95 @@ BEGIN
   RETURN QUERY SELECT rel_count, TRUE;
 END;
 $$ LANGUAGE plpgsql;`
+
+/**
+ * Get tree structure recursively from a segment
+ * Returns full tree with all descendants using direct parent-child relationships
+ */
+export const createGetSegmentTreeFunction = () => `-- Function: Get full tree structure from a segment
+-- Returns recursive tree with all direct children (segments and content)
+-- Result is JSONB with nested structure: {id: {type, content, children}}
+CREATE OR REPLACE FUNCTION get_segment_tree(root_segment_id TEXT)
+RETURNS JSONB AS $$
+DECLARE
+  result JSONB := '{}'::jsonb;
+BEGIN
+  -- Build tree recursively using CTE
+  WITH RECURSIVE tree AS (
+    -- Base case: direct children of root
+    SELECT 
+      sr.segment_2 AS child_id,
+      sr.segment_1 AS parent_id,
+      1 AS depth
+    FROM segment_relation sr
+    WHERE sr.segment_1 = root_segment_id 
+      AND sr.type = 0  -- Only direct relationships
+    
+    UNION ALL
+    
+    -- Recursive case: children of children
+    SELECT 
+      sr.segment_2 AS child_id,
+      sr.segment_1 AS parent_id,
+      t.depth + 1 AS depth
+    FROM tree t
+    INNER JOIN segment_relation sr ON sr.segment_1 = t.child_id
+    WHERE sr.type = 0  -- Only direct relationships
+      AND t.depth < 100  -- Prevent infinite loops
+  ),
+  -- Get all items in tree with their data
+  tree_items AS (
+    SELECT DISTINCT
+      t.child_id AS id,
+      t.parent_id,
+      s.name,
+      s.created_at,
+      s.updated_at,
+      CASE WHEN c.id IS NOT NULL THEN 'content' ELSE 'segment' END AS item_type,
+      c.type_code,
+      c.value,
+      ct.type_name
+    FROM tree t
+    LEFT JOIN segment s ON s.id = t.child_id
+    LEFT JOIN content c ON c.id = t.child_id
+    LEFT JOIN content_type ct ON ct.type_code = c.type_code
+  )
+  -- Build JSON result
+  SELECT jsonb_object_agg(
+    ti.id,
+    jsonb_build_object(
+      'type', ti.item_type,
+      'name', ti.name,
+      'created_at', ti.created_at,
+      'updated_at', ti.updated_at,
+      'content', CASE 
+        WHEN ti.item_type = 'content' THEN 
+          jsonb_build_object(
+            'type_code', ti.type_code,
+            'type_name', ti.type_name,
+            'value', ti.value
+          )
+        ELSE NULL
+      END,
+      'children', (
+        SELECT jsonb_object_agg(
+          child.id,
+          jsonb_build_object(
+            'type', child.item_type,
+            'name', child.name
+          )
+        )
+        FROM tree_items child
+        WHERE child.parent_id = ti.id
+      )
+    )
+  )
+  INTO result
+  FROM tree_items ti
+  WHERE ti.parent_id = root_segment_id;
+  
+  RETURN COALESCE(result, '{}'::jsonb);
+END;
+$$ LANGUAGE plpgsql STABLE;
+`
 

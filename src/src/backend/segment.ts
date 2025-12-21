@@ -1,5 +1,99 @@
 import { getSupabaseClient } from './supabase'
-import { segPathCache, segChildrenCache, segRelationCache } from '../cache/cache'
+import { segmentCache, contentCache, segPathCache, segChildrenCache, segRelationCache } from '../cache/cache'
+
+/**
+ * Get all root-level segments and content using SQL function
+ * Much more efficient than fetching all items and filtering client-side
+ */
+export const getRootItems = async (): Promise<{ 
+  code: number; 
+  data?: Array<{ id: string; name: string; type_code: number; created_at: string; updated_at: string; is_content: boolean }>; 
+  message?: string 
+}> => {
+  const startTime = performance.now()
+  
+  try {
+    const client = getSupabaseClient()
+    
+    // Call SQL function
+    const { data, error } = await client.rpc('get_root_items')
+    
+    if (error) {
+      console.error('[segment] Error getting root items:', error)
+      return { code: -1, message: error.message }
+    }
+    
+    const totalTime = (performance.now() - startTime).toFixed(2)
+    console.log(`[segment] ✅ Got ${data?.length || 0} root items (DB: ${totalTime}ms)`)
+    
+    // Update caches for all returned items
+    if (data && data.length > 0) {
+      for (const item of data) {
+        // Always add to segment cache
+        segmentCache.set(item.id, {
+          id: item.id,
+          name: item.name,
+          type_code: item.type_code,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        })
+        
+        // If it's content, we need to fetch full content data separately
+        // (The SQL function only returns basic segment data)
+        if (item.is_content && !contentCache.has(item.id)) {
+          // Mark that we know it's content, but don't fetch yet
+          // It will be fetched on-demand when needed
+        }
+      }
+    }
+    
+    return { code: 0, data: data || [] }
+  } catch (err: any) {
+    console.error('[segment] Failed to get root items:', err)
+    return { code: -1, message: err.message || 'Failed to get root items' }
+  }
+}
+
+/**
+ * Get path to root using SQL function (single query with recursive CTE)
+ * Much more efficient than multiple sequential queries
+ */
+export const getPathToRootOptimized = async (segmentId: string): Promise<{ code: number; data?: string[]; message?: string }> => {
+  const startTime = performance.now()
+  
+  try {
+    // Check cache first
+    if (segPathCache.has(segmentId)) {
+      const cachedPath = segPathCache.get(segmentId)!
+      console.log(`[segment] ✓ Path to root found in CACHE for ${segmentId}: ${cachedPath.length} segments (${(performance.now() - startTime).toFixed(2)}ms)`)
+      return { code: 0, data: cachedPath }
+    }
+
+    console.log(`[segment] ⚠️ Path to root NOT in cache for ${segmentId}, using SQL function...`)
+    
+    const client = getSupabaseClient()
+    
+    // Call SQL function - returns array of segment IDs from root to target
+    const { data, error } = await client.rpc('get_path_to_root', { target_segment_id: segmentId })
+    
+    if (error) {
+      console.error(`[segment] Error getting path to root:`, error)
+      return { code: -1, message: error.message }
+    }
+    
+    const path = data || []
+    
+    // Cache the path
+    segPathCache.set(segmentId, path)
+    const totalTime = (performance.now() - startTime).toFixed(2)
+    console.log(`[segment] ✅ Got and cached path for ${segmentId}: ${path.length} segments (DB: ${totalTime}ms)`)
+    
+    return { code: 0, data: path }
+  } catch (err: any) {
+    console.error(`[segment] Failed to get path to root:`, err)
+    return { code: -1, message: err.message || 'Failed to get path to root' }
+  }
+}
 
 /**
  * Segment relation types

@@ -8,6 +8,7 @@ import { getSupabaseClient } from '../backend/supabase'
 export interface PathSegmentCache {
   id: string
   name: string
+  isContent: boolean  // true if content item, false if pure segment
   created_at: string
   updated_at: string
   metadata: any

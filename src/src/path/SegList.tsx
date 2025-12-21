@@ -50,6 +50,7 @@ interface SegListProps {
   showRoleSelection?: boolean  // Show role selection columns (direct/indirect radio + bind checkbox)
   itemRoles?: Record<string, ItemRole>  // Current role for each item { [itemId]: { isDirect, isBind } }
   onRoleChange?: (itemId: string, role: ItemRole) => void  // Callback when role changes
+  roleSelectionReadOnly?: boolean  // If true, role checkboxes are disabled (read-only display)
 }
 
 
@@ -80,7 +81,8 @@ const SegList: React.FC<SegListProps> = ({
   onUpdateColWidthRatio,
   showRoleSelection = false,
   itemRoles = {},
-  onRoleChange
+  onRoleChange,
+  roleSelectionReadOnly = false
 }) => {
   const [editingName, setEditingName] = useState<string>('')
   // Column widths state (in pixels)
@@ -348,6 +350,7 @@ const SegList: React.FC<SegListProps> = ({
               {columns.includes('name') && (
                 <td 
                   className="name-cell"
+                  title={item.name}
                   onContextMenu={(e) => {
                     if (onItemContextMenu) {
                       e.preventDefault()
@@ -463,15 +466,12 @@ const SegList: React.FC<SegListProps> = ({
                   ) : (
                     <>
                       {item.name}
-                      {item.relationTypes && item.relationTypes.includes(1) && !item.relationTypes.includes(0) && (
-                        <span className="indirect-badge"> (indirect)</span>
-                      )}
                     </>
                   )}
                 </td>
               )}
               {columns.includes('path') && (
-                <td className="path-cell">
+                <td className="path-cell" title={item.path || '-'}>
                   {item.path || '-'}
                 </td>
               )}
@@ -493,7 +493,7 @@ const SegList: React.FC<SegListProps> = ({
                 </td>
               )}
               {columns.includes('value') && (
-                <td className="value-cell">
+                <td className="value-cell" title={item.type === 'content' ? (item.value || '') : '-'}>
                   {item.type === 'content' ? (item.value || '') : '-'}
                 </td>
               )}
@@ -513,6 +513,7 @@ const SegList: React.FC<SegListProps> = ({
                     <input
                       type="checkbox"
                       checked={itemRoles[item.id]?.isDirect || false}
+                      disabled={roleSelectionReadOnly}
                       onChange={(e) => onRoleChange?.(item.id, { 
                         isDirect: e.target.checked,
                         isIndirect: e.target.checked ? false : itemRoles[item.id]?.isIndirect || false, // Uncheck indirect if direct is checked
@@ -524,6 +525,7 @@ const SegList: React.FC<SegListProps> = ({
                     <input
                       type="checkbox"
                       checked={itemRoles[item.id]?.isIndirect || false}
+                      disabled={roleSelectionReadOnly}
                       onChange={(e) => onRoleChange?.(item.id, { 
                         isDirect: e.target.checked ? false : itemRoles[item.id]?.isDirect || false, // Uncheck direct if indirect is checked
                         isIndirect: e.target.checked,
@@ -535,6 +537,7 @@ const SegList: React.FC<SegListProps> = ({
                     <input
                       type="checkbox"
                       checked={itemRoles[item.id]?.isBind || false}
+                      disabled={roleSelectionReadOnly}
                       onChange={(e) => onRoleChange?.(item.id, { 
                         isDirect: itemRoles[item.id]?.isDirect || false,
                         isIndirect: itemRoles[item.id]?.isIndirect || false,
