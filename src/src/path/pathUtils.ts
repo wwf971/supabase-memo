@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../backend/supabase'
 import { segmentCache, segRelationCache } from '../cache/cache'
-import { getPathToRoot, getPathToRootOptimized, getDirectParent } from '../backend/segment'
+import { getPathToRootOptimized, getDirectParent } from '../backend/segment'
 
 export interface PathSegment {
   id: string
@@ -49,7 +49,8 @@ export async function createSegment(
       .from('segment')
       .insert({
         id,
-        name
+        name,
+        isContent: false  // Explicitly mark as segment, not content
       })
       .select()
       .single()
@@ -57,6 +58,17 @@ export async function createSegment(
     if (error) {
       return { code: -5, message: error.message }
     }
+
+    // Update cache
+    segmentCache.set(id, {
+      id: data.id,
+      name: data.name,
+      isContent: data.isContent ?? false,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+      metadata: data.metadata || {}
+    })
+    console.log(`[segment] Created segment: ${id} (name: "${name}") - cached`)
 
     return { code: 0, data }
   } catch (err: any) {

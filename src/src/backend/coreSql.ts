@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS segment_relation (
   type INTEGER NOT NULL,               -- Relationship type (0=direct parent/child, 1=indirect, 2=parent binds content)
   segment_1 TEXT NOT NULL,             -- First entity (parent in type 0/1/2)
   segment_2 TEXT NOT NULL,             -- Second entity (child segment in type 0/1, bound content in type 2)
+  rank INTEGER,                        -- Order rank for direct children (used only when type=0), higher rank = later in list
   created_at TIMESTAMP DEFAULT NOW(),
   metadata JSONB DEFAULT '{}'::jsonb,
   
@@ -153,6 +154,7 @@ CREATE INDEX IF NOT EXISTS idx_segment_relation_1 ON segment_relation(segment_1)
 CREATE INDEX IF NOT EXISTS idx_segment_relation_2 ON segment_relation(segment_2);
 CREATE INDEX IF NOT EXISTS idx_segment_relation_type_1 ON segment_relation(type, segment_1);
 CREATE INDEX IF NOT EXISTS idx_segment_relation_type_2 ON segment_relation(type, segment_2);
+CREATE INDEX IF NOT EXISTS idx_segment_relation_rank ON segment_relation(segment_1, type, rank) WHERE type = 0;
 `.trim()
 }
 

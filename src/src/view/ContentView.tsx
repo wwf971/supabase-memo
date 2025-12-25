@@ -311,6 +311,7 @@ const ContentView: React.FC<ContentViewProps> = ({
     <div className="content-view" onContextMenu={handleContextMenu}>
       <Header
         title={contentName || '(unnamed content)'}
+        id={contentId}
         badge={contentTypeName}
         actions={[
           {

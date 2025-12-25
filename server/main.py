@@ -24,11 +24,11 @@ def after_request(response):
 CONFIG = {}
 GET_TOKEN = None
 POST_TOKEN = None
-supabase: Optional[Client] = None
+# supase = None # not thread-safe. even if supabase don't maintain active network connection with server.
 
 def load_config():
     """Load configuration from config.json and config.0.json files"""
-    global CONFIG, GET_TOKEN, POST_TOKEN, supabase
+    global CONFIG, GET_TOKEN, POST_TOKEN
     
     config_path = Path(__file__).parent.parent / 'src' / 'public' / 'config.json'
     config_0_path = Path(__file__).parent.parent / 'src' / 'public' / 'config.0.json'
@@ -53,13 +53,22 @@ def load_config():
     GET_TOKEN = os.getenv('GET_TOKEN', 'example_token')
     POST_TOKEN = os.getenv('POST_TOKEN', 'example_post_token')
     
-    # Initialize Supabase client
+    # Verify Supabase configuration
     if CONFIG.get('project_url') and CONFIG.get('anon_key'):
-        try:
-            supabase = create_client(CONFIG['project_url'], CONFIG['anon_key'])
-            print(f"✓ Supabase client initialized: {CONFIG['project_url']}")
-        except Exception as e:
-            print(f"✗ Failed to initialize Supabase: {e}")
+        print(f"✓ Supabase configuration loaded: {CONFIG['project_url']}")
+    else:
+        print(f"✗ Supabase configuration incomplete")
+
+def get_supabase_client() -> Optional[Client]:
+    """Create a new Supabase client for this request"""
+    if not CONFIG.get('project_url') or not CONFIG.get('anon_key'):
+        return None
+    
+    try:
+        return create_client(CONFIG['project_url'], CONFIG['anon_key'])
+    except Exception as e:
+        print(f"✗ Failed to create Supabase client: {e}")
+        return None
 
 def verify_token(token_type='GET'):
     """Verify token from request parameters"""
@@ -92,7 +101,7 @@ def parse_path(path_str: str):
 # MULTI-QUERY METHODS (Fallback approach - multiple round trips)
 # ============================================================================
 
-def is_content(item_id: str) -> bool:
+def is_content(supabase: Client, item_id: str) -> bool:
     """Check if an ID represents content (vs segment)"""
     if not supabase:
         return False
@@ -100,7 +109,7 @@ def is_content(item_id: str) -> bool:
     result = supabase.table('content').select('id').eq('id', item_id).execute()
     return result.data and len(result.data) > 0
 
-def get_children_ids(parent_id: Optional[str]) -> List[str]:
+def get_children_ids(supabase: Client, parent_id: Optional[str]) -> List[str]:
     """Get all direct children IDs of a parent (or root if parent_id is None)"""
     if not supabase:
         return []
@@ -123,7 +132,7 @@ def get_children_ids(parent_id: Optional[str]) -> List[str]:
         result = supabase.table('segment_relation').select('segment_2').eq('type', 0).eq('segment_1', parent_id).execute()
         return [rel['segment_2'] for rel in (result.data or [])]
 
-def resolve_path_to_id(segments: List[str]) -> Optional[str]:
+def resolve_path_to_id(supabase: Client, segments: List[str]) -> Optional[str]:
     """Resolve a path of segment names to the final segment/content ID"""
     if not supabase or not segments:
         return None
@@ -132,7 +141,7 @@ def resolve_path_to_id(segments: List[str]) -> Optional[str]:
     
     for seg_name in segments:
         # Get children of current parent
-        child_ids = get_children_ids(current_parent)
+        child_ids = get_children_ids(supabase, current_parent)
         
         # Find which child has the matching name
         for child_id in child_ids:
@@ -148,55 +157,55 @@ def resolve_path_to_id(segments: List[str]) -> Optional[str]:
     
     return current_parent
 
-def get_children_multi_query(segments: List[str]):
+def get_children_multi_query(supabase: Client, segments: List[str]):
     """Get segment children using multiple queries (fallback method)"""
     print("[METHOD] Using multi-query approach for get_children")
     
     if not segments:
         # Root level
-        root_ids = get_children_ids(None)
+        root_ids = get_children_ids(supabase, None)
         items = []
         
         for item_id in root_ids:
             seg_data = supabase.table('segment').select('id, name').eq('id', item_id).execute()
             if seg_data.data and len(seg_data.data) > 0:
                 item = seg_data.data[0]
-                item['item_type'] = 'content' if is_content(item_id) else 'segment'
+                item['item_type'] = 'content' if is_content(supabase, item_id) else 'segment'
                 items.append(item)
         
         return {'code': 0, 'data': {'items': items}}
     
     # Resolve path
-    item_id = resolve_path_to_id(segments)
+    item_id = resolve_path_to_id(supabase, segments)
     if not item_id:
         return {'code': -1, 'message': 'Path does not exist'}
     
     # Get children
-    child_ids = get_children_ids(item_id)
+    child_ids = get_children_ids(supabase, item_id)
     items = []
     
     for child_id in child_ids:
         seg_data = supabase.table('segment').select('id, name').eq('id', child_id).execute()
         if seg_data.data and len(seg_data.data) > 0:
             item = seg_data.data[0]
-            item['item_type'] = 'content' if is_content(child_id) else 'segment'
+            item['item_type'] = 'content' if is_content(supabase, child_id) else 'segment'
             items.append(item)
     
     return {'code': 0, 'data': {'items': items, 'segment_id': item_id}}
 
-def get_content_multi_query(segments: List[str]):
+def get_content_multi_query(supabase: Client, segments: List[str]):
     """Get content using multiple queries (fallback method)
     New logic: Uses bind relationship (type=2) instead of empty name convention
     Priority: bound content > direct child content > indirect child content"""
     print("[METHOD] Using multi-query approach for get_content")
     
-    item_id = resolve_path_to_id(segments)
+    item_id = resolve_path_to_id(supabase, segments)
     
     if not item_id:
         return {'code': -1, 'message': 'Path does not exist'}
     
     # Check if the resolved ID itself is content
-    if is_content(item_id):
+    if is_content(supabase, item_id):
         content_id = item_id
     else:
         # Item is a segment, look for associated content
@@ -207,7 +216,7 @@ def get_content_multi_query(segments: List[str]):
         bind_result = supabase.table('segment_relation').select('segment_2').eq('segment_1', item_id).eq('type', 2).limit(1).execute()
         if bind_result.data and len(bind_result.data) > 0:
             candidate_id = bind_result.data[0]['segment_2']
-            if is_content(candidate_id):
+            if is_content(supabase, candidate_id):
                 content_id = candidate_id
         
         # If no bound content, try direct child content (type=0)
@@ -216,7 +225,7 @@ def get_content_multi_query(segments: List[str]):
             if direct_result.data:
                 for rel in direct_result.data:
                     candidate_id = rel['segment_2']
-                    if is_content(candidate_id):
+                    if is_content(supabase, candidate_id):
                         content_id = candidate_id
                         break
         
@@ -226,7 +235,7 @@ def get_content_multi_query(segments: List[str]):
             if indirect_result.data:
                 for rel in indirect_result.data:
                     candidate_id = rel['segment_2']
-                    if is_content(candidate_id):
+                    if is_content(supabase, candidate_id):
                         content_id = candidate_id
                         break
         
@@ -285,7 +294,7 @@ def get_content_multi_query(segments: List[str]):
 # POSTGRESQL FUNCTION METHODS (Primary approach - single query)
 # ============================================================================
 
-def get_children_pg_function(segments: List[str]):
+def get_children_pg_function(supabase: Client, segments: List[str]):
     """Get segment children using PostgreSQL function (single query)"""
     print("[METHOD] Using PostgreSQL function for get_children")
     
@@ -298,7 +307,7 @@ def get_children_pg_function(segments: List[str]):
     except Exception as e:
         return {'code': -5, 'message': str(e)}
 
-def get_content_pg_function(segments: List[str]):
+def get_content_pg_function(supabase: Client, segments: List[str]):
     """Get content using PostgreSQL function (single query)"""
     print("[METHOD] Using PostgreSQL function for get_content")
     
@@ -358,22 +367,28 @@ def get_content_pg_function(segments: List[str]):
     except Exception as e:
         return {'code': -5, 'message': str(e)}
 
-def fetch_tree(segment_id):
+def fetch_tree(supabase: Client, segment_id: str):
     """
     Fetch full tree structure for a segment using PostgreSQL function
     Returns nested JSON with all direct children recursively
     """
     try:
+        print(f"[fetch_tree] Fetching tree for segment_id: {segment_id}")
         response = supabase.rpc('get_segment_tree', {'root_segment_id': segment_id}).execute()
         
         if response.data is not None:
+            print(f"[fetch_tree] Successfully fetched tree for segment_id: {segment_id}")
             return {
                 'code': 0,
                 'message': 'Tree fetched successfully',
                 'data': response.data
             }
+        print(f"[fetch_tree] No data returned for segment_id: {segment_id}")
         return {'code': -1, 'message': 'Failed to fetch tree'}
     except Exception as e:
+        print(f"[fetch_tree] Exception for segment_id {segment_id}: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {'code': -5, 'message': str(e)}
 
     
@@ -385,6 +400,8 @@ def handle_path(path):
     if not verify_token('GET'):
         return jsonify({'code': -2, 'message': 'Invalid or missing token'}), 401
     
+    # Create a new Supabase client for this request
+    supabase = get_supabase_client()
     if not supabase:
         return jsonify({'code': -3, 'message': 'Supabase client not initialized'}), 500
     
@@ -404,13 +421,17 @@ def handle_path(path):
                 return jsonify({'code': -1, 'message': 'Cannot fetch tree for root'}), 400
             
             # Resolve path to get segment ID
-            segment_id = resolve_path_to_id(segments)
+            segment_id = resolve_path_to_id(supabase, segments)
             if not segment_id:
+                print(f"[ERROR] Segment not found for path: {segments}")
                 return jsonify({'code': -1, 'message': 'Segment not found'}), 404
             
+            print(f"[DEBUG] Resolved path {segments} to segment_id: {segment_id}")
+            
             # Fetch tree structure
-            tree_result = fetch_tree(segment_id)
+            tree_result = fetch_tree(supabase, segment_id)
             if tree_result['code'] < 0:
+                print(f"[ERROR] fetch_tree failed with code {tree_result['code']}: {tree_result.get('message')}")
                 return jsonify({'code': tree_result['code'], 'message': tree_result.get('message', 'Failed to fetch tree')}), 500
             
             return jsonify({
@@ -427,11 +448,11 @@ def handle_path(path):
         # Trailing slash → treat as segment, return children
         if has_trailing_slash:
             # Try PostgreSQL function first
-            result = get_children_pg_function(segments)
+            result = get_children_pg_function(supabase, segments)
             
             if result['code'] < 0:
                 print(f"[FALLBACK] PG function failed (code={result['code']}): {result.get('message', 'Unknown error')}, using multi-query")
-                result = get_children_multi_query(segments)
+                result = get_children_multi_query(supabase, segments)
             
             if result['code'] < 0:
                 return jsonify({'code': result['code'], 'message': result.get('message', 'Path does not exist')}), 404
@@ -454,11 +475,11 @@ def handle_path(path):
         # No trailing slash → treat as content
         else:
             # Try PostgreSQL function first
-            result = get_content_pg_function(segments)
+            result = get_content_pg_function(supabase, segments)
             
             if result['code'] < 0:
                 print(f"[FALLBACK] PG function failed (code={result['code']}): {result.get('message', 'Unknown error')}, using multi-query")
-                result = get_content_multi_query(segments)
+                result = get_content_multi_query(supabase, segments)
             
             if result['code'] < 0:
                 return jsonify({'code': result['code'], 'message': result.get('message', 'Content not found')}), 404
@@ -478,7 +499,6 @@ def handle_path(path):
                     hex_str = value[2:]  # Remove \x prefix
                     base64_str = bytes.fromhex(hex_str).decode('utf-8')
                     byte_data = base64.b64decode(base64_str)
-                    print(f"[BINARY] Decoded {len(byte_data)} bytes for {content_type}")
                     return Response(byte_data, mimetype=content_type)
                 else:
                     return Response(value, mimetype=content_type)
@@ -510,11 +530,14 @@ def ping():
             'message': 'Server is reachable but token is invalid'
         })
     
+    # Test Supabase client creation
+    supabase_configured = CONFIG.get('project_url') and CONFIG.get('anon_key')
+    
     return jsonify({
         'code': 0,
         'message': 'Connection successful',
         'data': {
-            'supabase_configured': supabase is not None
+            'supabase_configured': supabase_configured
         }
     })
 
@@ -538,5 +561,6 @@ if __name__ == '__main__':
     load_config()
     print(f"GET_TOKEN: {GET_TOKEN}")
     print(f"POST_TOKEN: {POST_TOKEN}")
-    print(f"Supabase configured: {supabase is not None}")
-    app.run(host='0.0.0.0', port=18100, debug=True)
+    print(f"Supabase configured: {CONFIG.get('project_url') and CONFIG.get('anon_key')}")
+    # Enable threaded mode to handle concurrent requests
+    app.run(host='0.0.0.0', port=18100, debug=True, threaded=True)

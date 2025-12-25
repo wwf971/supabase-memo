@@ -33,9 +33,10 @@ export const getRootItems = async (): Promise<{
         segmentCache.set(item.id, {
           id: item.id,
           name: item.name,
-          type_code: item.type_code,
+          isContent: item.is_content,
           created_at: item.created_at,
-          updated_at: item.updated_at
+          updated_at: item.updated_at,
+          metadata: {}
         })
         
         // If it's content, we need to fetch full content data separately
@@ -194,35 +195,99 @@ export async function getChildren(
  * @param parentId - Parent ID (segment or content)
  * @param childId - Child ID (segment or content)
  * @param relationType - Relation type (default: PARENT_CHILD_DIRECT)
+ * @param rank - Optional rank for direct children (if not provided, will be set to max+1000)
  */
 export async function createRelation(
   parentId: string,
   childId: string,
-  relationType: SegmentRelationType = SegmentRelationType.PARENT_CHILD_DIRECT
+  relationType: SegmentRelationType = SegmentRelationType.PARENT_CHILD_DIRECT,
+  rank?: number
 ): Promise<{ code: number; message?: string; data?: SegmentRelation }> {
   try {
     const client = getSupabaseClient()
 
+    // Validate: prevent self-referential relations
+    if (parentId === childId) {
+      console.error(`[segment] ❌ PREVENTED self-referential relation: ${parentId} -> ${childId}`)
+      return { code: -11, message: 'Cannot create self-referential relation' }
+    }
+
+    // For direct children, determine rank if not provided
+    let finalRank = rank
+    if (relationType === SegmentRelationType.PARENT_CHILD_DIRECT && finalRank === undefined) {
+      // Get max rank from existing direct children
+      const { data: maxRankData } = await client
+        .from('segment_relation')
+        .select('rank')
+        .eq('segment_1', parentId)
+        .eq('type', SegmentRelationType.PARENT_CHILD_DIRECT)
+        .order('rank', { ascending: false, nullsFirst: false })
+        .limit(1)
+      
+      const maxRank = maxRankData && maxRankData.length > 0 && maxRankData[0].rank !== null 
+        ? maxRankData[0].rank 
+        : 0
+      
+      // Find next power of 2 greater than maxRank
+      // Max safe value for 32-bit signed int: 2^30 = 1,073,741,824
+      const MAX_SAFE_RANK = 1073741824  // 2^30
+      
+      let nextPowerOf2 = 1024
+      while (nextPowerOf2 <= maxRank && nextPowerOf2 < MAX_SAFE_RANK) {
+        nextPowerOf2 *= 2
+      }
+      
+      // Check if we've reached the limit
+      if (nextPowerOf2 >= MAX_SAFE_RANK || nextPowerOf2 <= maxRank) {
+        console.warn(`[segment] Rank space exhausted for parent ${parentId}, maxRank=${maxRank}. Need to reorder children.`)
+        // Fallback: trigger reorder by returning error
+        return { 
+          code: -10, 
+          message: `Rank space exhausted. Please reorder children of parent ${parentId} first.` 
+        }
+      }
+      
+      finalRank = nextPowerOf2
+      console.log(`[segment] Auto-assigned rank ${finalRank} for new child (max was ${maxRank})`)
+    }
+
+    const insertData: any = {
+      type: relationType,
+      segment_1: parentId,
+      segment_2: childId
+    }
+    
+    // Only set rank for direct children
+    if (relationType === SegmentRelationType.PARENT_CHILD_DIRECT && finalRank !== undefined) {
+      insertData.rank = finalRank
+    }
+
+    console.log(`[segment] 🔄 Creating relation: ${parentId} -> ${childId} (type ${relationType})`)
+    
     const { data, error } = await client
       .from('segment_relation')
-      .insert({
-        type: relationType,
-        segment_1: parentId,
-        segment_2: childId
-      })
+      .insert(insertData)
       .select()
       .single()
 
     if (error) {
+      console.error(`[segment] ❌ DB insert failed:`, error)
       return { code: -5, message: error.message }
     }
 
+    // Verify the inserted data is correct (prevent cache corruption)
+    if (data && (data.segment_1 !== parentId || data.segment_2 !== childId)) {
+      console.error(`[segment] ❌ CRITICAL: DB returned wrong relation! Expected ${parentId}->${childId}, got ${data.segment_1}->${data.segment_2}`)
+      // Don't update cache with wrong data
+      return { code: -12, message: 'Database returned incorrect relation data' }
+    }
+
     // Add to relation cache (also invalidates path cache internally)
-    segRelationCache.addRelation(parentId, childId, relationType)
+    segRelationCache.addRelation(parentId, childId, relationType, finalRank)
     
     // Invalidate old children cache (for backward compatibility)
     segChildrenCache.delete(parentId, relationType)
-    console.log(`[segment] Created relation and updated caches: ${parentId} -> ${childId} (type ${relationType})`)
+    console.log(`[segment] Created relation and updated caches: ${parentId} -> ${childId} (type ${relationType}, rank ${finalRank})`)
 
     return { code: 0, data }
   } catch (err: any) {

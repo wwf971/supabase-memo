@@ -13,6 +13,9 @@ import {
   createContentBinaryTable
 } from '../backend/contentSql'
 import {
+  createSegmentPathTable
+} from '../backend/pathSql'
+import {
   createCheckFunctionExistsFunction,
   createGetRootItemsFunction,
   createGetPathToRootFunction,
@@ -54,6 +57,11 @@ const tableConfigs = [
     name: 'segment_relation',
     description: 'Many-to-many relationships between path segments and content',
     createSQL: () => createSegmentRelationTable()
+  },
+  {
+    name: 'segment_path',
+    description: 'Pre-computed path cache for fast search (stores full path for each segment/content)',
+    createSQL: () => `${createUpdateFunction()}\n\n${createSegmentPathTable()}`
   },
   {
     name: 'content_type',
@@ -113,9 +121,9 @@ const functionConfigs = [
   },
   {
     name: 'get_segment_tree',
-    description: 'Get full tree structure from a segment - recursively returns all direct children as nested JSON',
+    description: 'Get full tree structure from a segment - recursively returns all direct children as nested JSON (includes helper function build_node_tree)',
     createSQL: createGetSegmentTreeFunction(),
-    dropSQL: 'DROP FUNCTION IF EXISTS get_segment_tree(TEXT);'
+    dropSQL: 'DROP FUNCTION IF EXISTS get_segment_tree(TEXT); DROP FUNCTION IF EXISTS build_node_tree(TEXT);'
   }
 ]
 

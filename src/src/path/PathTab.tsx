@@ -102,6 +102,7 @@ const PathTab: React.FC<PathTabProps> = ({
   
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId?: string } | null>(null)
+  const [menuCounter, setMenuCounter] = useState(0) // Counter to force menu remount
   const [showCreatePanel, setShowCreatePanel] = useState(false)
   const [createType, setCreateType] = useState<'path' | 'content'>('path')
   const [contentTypeForCreate, setContentTypeForCreate] = useState<'text' | 'image' | 'file'>('text')
@@ -304,8 +305,27 @@ const PathTab: React.FC<PathTabProps> = ({
    */
   const handleItemDoubleClick = async (itemId: string, itemType: 'segment' | 'content') => {
     const navStartTime = performance.now()
-    console.log(`[PathTab] 🖱️ NAVIGATION START - Double-clicked ${itemType}: ${itemId}`)
+    console.log(`[PathTab] 🖱️ Double-clicked ${itemType}: ${itemId}`)
     
+    // Content items should open in ContentView, segments should navigate
+    if (itemType === 'content') {
+      console.log(`[PathTab] Opening content in ContentView`)
+      // Navigate to content view directly
+      const contentItem = items.find(i => i.id === itemId)
+      const itemName = contentItem?.name || getItemName(itemId) || '(unnamed)'
+      
+      // Get path to root for the content
+      const pathResult = await getPathToRoot(itemId)
+      if (pathResult.code === 0 && pathResult.data) {
+        onNavi?.(pathResult.data, itemName)
+      } else {
+        // Fallback: use current path + itemId
+        onNavi?.([...data.currentPath, itemId], itemName)
+      }
+      return
+    }
+    
+    console.log(`[PathTab] 🖱️ NAVIGATION START - Navigating into segment: ${itemId}`)
     setIsSwitching(true)
     console.log(`[PathTab] Current path BEFORE navigation:`, data.currentPath)
     
@@ -345,6 +365,20 @@ const PathTab: React.FC<PathTabProps> = ({
   const handleItemContextMenu = (e: React.MouseEvent, itemId: string, itemType: 'segment' | 'content') => {
     e.preventDefault()
     e.stopPropagation()
+    
+    // Find the item in the list to get full details
+    const itemIndex = items.findIndex(i => i.id === itemId)
+    const item = items[itemIndex]
+    const itemName = item?.name || '(unnamed)'
+    
+    console.log(`🎯 [RIGHT-CLICK ITEM] Index: ${itemIndex}, Type: ${itemType}, Name: "${itemName}", ID: ${itemId}`)
+    console.log(`   Menu already open: ${contextMenu !== null}`)
+    console.log(`   Current contextMenu state:`, contextMenu)
+    
+    // Always increment counter to force menu remount with new context
+    const newCounter = menuCounter + 1
+    console.log(`   Incrementing menuCounter: ${menuCounter} -> ${newCounter}`)
+    setMenuCounter(newCounter)
     setContextMenu({ x: e.clientX, y: e.clientY, itemId })
   }
 
@@ -356,6 +390,54 @@ const PathTab: React.FC<PathTabProps> = ({
     if (data.currentPath.length === 0) return
     
     e.preventDefault()
+    
+    // If menu is currently open, we need to temporarily hide it to detect what's underneath
+    let elementUnderCursor: Element | null = null
+    let targetRow: HTMLTableRowElement | null = null
+    
+    if (contextMenu) {
+      console.log(`🔍 [handleContextMenu] Menu is open, need to detect what's underneath at (${e.clientX}, ${e.clientY})`)
+      
+      // Temporarily hide the menu to detect what's underneath
+      const menuElements = document.querySelectorAll('.context-menu, .menu-backdrop')
+      menuElements.forEach(el => (el as HTMLElement).style.pointerEvents = 'none')
+      
+      // Now detect what's underneath
+      elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY)
+      targetRow = elementUnderCursor?.closest('tr') as HTMLTableRowElement | null
+      
+      // Restore pointer events
+      menuElements.forEach(el => (el as HTMLElement).style.pointerEvents = '')
+      
+      console.log(`   Element under cursor:`, elementUnderCursor)
+      console.log(`   Closest TR:`, targetRow)
+      
+      // If there's a table row under the cursor, find the item and trigger item context menu
+      if (targetRow && (targetRow.classList.contains('segment-row') || targetRow.classList.contains('content-row'))) {
+        // Find the item by looking at the row's data
+        const tbody = targetRow.parentElement
+        if (tbody) {
+          const rowIndex = Array.from(tbody.children).indexOf(targetRow)
+          if (rowIndex >= 0 && rowIndex < items.length) {
+            const item = items[rowIndex]
+            console.log(`   ✅ Found item under cursor: Index=${rowIndex}, Name="${item.name}", Type=${item.type}`)
+            
+            // Call item context menu handler directly
+            handleItemContextMenu(e, item.id, item.type)
+            return
+          }
+        }
+      }
+    }
+    
+    console.log(`🎯 [RIGHT-CLICK EMPTY SPACE]`)
+    console.log(`   Menu already open: ${contextMenu !== null}`)
+    console.log(`   Current contextMenu state:`, contextMenu)
+    
+    // Always increment counter to force menu remount with new context
+    const newCounter = menuCounter + 1
+    console.log(`   Incrementing menuCounter: ${menuCounter} -> ${newCounter}`)
+    setMenuCounter(newCounter)
     setContextMenu({ x: e.clientX, y: e.clientY })
   }
 
@@ -364,6 +446,8 @@ const PathTab: React.FC<PathTabProps> = ({
    */
   const handleCloseContextMenu = () => {
     setContextMenu(null)
+    // Reset counter periodically to prevent overflow (every 100 closes)
+    setMenuCounter(prev => prev >= 100 ? 0 : prev)
   }
 
   /**
@@ -435,14 +519,23 @@ const PathTab: React.FC<PathTabProps> = ({
    * Get context menu items based on context
    */
   const getContextMenuItems = (): MenuItem[] => {
+    console.log(`📋 [GET MENU ITEMS] Called with contextMenu:`, contextMenu)
+    console.log(`   Current menuCounter: ${menuCounter}`)
+    
     if (contextMenu?.itemId) {
       // Context menu for an item - check its type from cache
       const itemType = getItemType(contextMenu.itemId)
-      console.log(`[PathTab] Context menu for item ${contextMenu.itemId}, detected type: ${itemType}`)
+      const item = items.find(i => i.id === contextMenu.itemId)
+      const itemName = item?.name || '(unnamed)'
+      const itemIndex = items.findIndex(i => i.id === contextMenu.itemId)
+      const isDirectChild = item?.relationTypes?.includes(0) || false
+      
+      console.log(`   📄 ITEM MENU for: Index=${itemIndex}, Type=${itemType}, Name="${itemName}", IsDirectChild=${isDirectChild}`)
+      console.log(`   RelationTypes:`, item?.relationTypes)
       
       if (itemType === 'content') {
       // Context menu for content item
-      return [
+      const menuItems: MenuItem[] = [
         {
           type: 'item',
           name: 'View Details',
@@ -452,7 +545,26 @@ const PathTab: React.FC<PathTabProps> = ({
           type: 'item',
           name: 'Rename',
           data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'content' }
-        },
+        }
+      ]
+      
+      // Add Move Up/Down for direct children
+      if (isDirectChild) {
+        menuItems.push(
+          {
+            type: 'item',
+            name: 'Move Up',
+            data: { action: 'moveUp', itemId: contextMenu.itemId, itemType: 'content' }
+          },
+          {
+            type: 'item',
+            name: 'Move Down',
+            data: { action: 'moveDown', itemId: contextMenu.itemId, itemType: 'content' }
+          }
+        )
+      }
+      
+      menuItems.push(
         {
           type: 'item',
           name: 'Modify Parent',
@@ -468,10 +580,13 @@ const PathTab: React.FC<PathTabProps> = ({
           name: 'Delete',
           data: { action: 'delete', itemId: contextMenu.itemId, itemType: 'content' }
         }
-      ]
+      )
+      
+      console.log(`   ✅ Returning ${menuItems.length} menu items for CONTENT:`, menuItems.map(m => m.name))
+      return menuItems
       } else {
         // Context menu for segment - could add segment-specific actions here
-        return [
+        const menuItems: MenuItem[] = [
           {
             type: 'item',
             name: 'Open',
@@ -486,7 +601,26 @@ const PathTab: React.FC<PathTabProps> = ({
             type: 'item',
             name: 'Rename',
             data: { action: 'rename', itemId: contextMenu.itemId, itemType: 'segment' }
-          },
+          }
+        ]
+        
+        // Add Move Up/Down for direct children
+        if (isDirectChild) {
+          menuItems.push(
+            {
+              type: 'item',
+              name: 'Move Up',
+              data: { action: 'moveUp', itemId: contextMenu.itemId, itemType: 'segment' }
+            },
+            {
+              type: 'item',
+              name: 'Move Down',
+              data: { action: 'moveDown', itemId: contextMenu.itemId, itemType: 'segment' }
+            }
+          )
+        }
+        
+        menuItems.push(
           {
             type: 'item',
             name: 'Modify Parent',
@@ -497,11 +631,16 @@ const PathTab: React.FC<PathTabProps> = ({
             name: 'Delete',
             data: { action: 'delete', itemId: contextMenu.itemId, itemType: 'segment' }
           }
-        ]
+        )
+        
+        console.log(`   ✅ Returning ${menuItems.length} menu items for SEGMENT:`, menuItems.map(m => m.name))
+        return menuItems
       }
     } else {
       // Context menu for background (create new items / add content to current segment)
       const currentSegmentId = data.currentPath[data.currentPath.length - 1]
+      const currentSegmentName = currentSegmentId ? (segmentCache.getSync(currentSegmentId)?.name || '(unnamed)') : 'root'
+      console.log(`   🌐 BACKGROUND MENU for segment: "${currentSegmentName}" (${currentSegmentId || 'root'})`)
       const menuItems: MenuItem[] = []
       
       // Add "Add Content" if we have a current segment
@@ -557,7 +696,78 @@ const PathTab: React.FC<PathTabProps> = ({
         ]
       })
       
+      console.log(`   ✅ Returning ${menuItems.length} menu items for BACKGROUND:`, menuItems.map(m => m.name))
       return menuItems
+    }
+  }
+
+  /**
+   * Handle move up (move item one position up in ranking)
+   */
+  const handleMoveUp = async (itemId: string) => {
+    console.log(`[PathTab] handleMoveUp called for ${itemId}`)
+    
+    // Get current parent segment
+    const currentParentId = data.currentPath[data.currentPath.length - 1]
+    if (!currentParentId) {
+      console.error('[PathTab] No current parent segment')
+      setErrorMessage('Cannot move: no parent segment')
+      handleCloseContextMenu()
+      return
+    }
+    
+    try {
+      const { moveDirectChildUp } = await import('../backend/children')
+      const result = await moveDirectChildUp(currentParentId, itemId)
+      
+      if (result.code === 0) {
+        console.log(`[PathTab] ✅ Moved up ${itemId}`)
+        // Reload items to reflect new order
+        await loadItems()
+      } else {
+        console.error(`[PathTab] ❌ Failed to move up: ${result.message}`)
+        setErrorMessage(result.message || 'Failed to move up')
+      }
+    } catch (err: any) {
+      console.error('[PathTab] Error moving up:', err)
+      setErrorMessage(err.message || 'Failed to move up')
+    } finally {
+      handleCloseContextMenu()
+    }
+  }
+
+  /**
+   * Handle move down (move item one position down in ranking)
+   */
+  const handleMoveDown = async (itemId: string) => {
+    console.log(`[PathTab] handleMoveDown called for ${itemId}`)
+    
+    // Get current parent segment
+    const currentParentId = data.currentPath[data.currentPath.length - 1]
+    if (!currentParentId) {
+      console.error('[PathTab] No current parent segment')
+      setErrorMessage('Cannot move: no parent segment')
+      handleCloseContextMenu()
+      return
+    }
+    
+    try {
+      const { moveDirectChildDown } = await import('../backend/children')
+      const result = await moveDirectChildDown(currentParentId, itemId)
+      
+      if (result.code === 0) {
+        console.log(`[PathTab] ✅ Moved down ${itemId}`)
+        // Reload items to reflect new order
+        await loadItems()
+      } else {
+        console.error(`[PathTab] ❌ Failed to move down: ${result.message}`)
+        setErrorMessage(result.message || 'Failed to move down')
+      }
+    } catch (err: any) {
+      console.error('[PathTab] Error moving down:', err)
+      setErrorMessage(err.message || 'Failed to move down')
+    } finally {
+      handleCloseContextMenu()
     }
   }
 
@@ -568,7 +778,22 @@ const PathTab: React.FC<PathTabProps> = ({
     const { action, itemId, itemType, contentType } = item.data || {}
     console.log(`[PathTab] Menu item clicked:`, { action, itemId, itemType, contentType })
     
-    if (action === 'viewDetails' && itemId) {
+    if (action === 'view' && itemId) {
+      // View content - get item info and navigate to show ContentView
+      const contentItem = items.find(i => i.id === itemId)
+      const itemName = contentItem?.name || getItemName(itemId) || '(unnamed)'
+      console.log(`[PathTab] Viewing content: ${itemName} (${itemId})`)
+      
+      // Get path to root for the content
+      getPathToRoot(itemId).then(pathResult => {
+        if (pathResult.code === 0 && pathResult.data) {
+          onNavi?.(pathResult.data, itemName)
+        } else {
+          // Fallback: use current path + itemId
+          onNavi?.([...data.currentPath, itemId], itemName)
+        }
+      })
+    } else if (action === 'viewDetails' && itemId) {
       handleItemDoubleClick(itemId, 'content')
     } else if (action === 'open' && itemId) {
       handleItemDoubleClick(itemId, 'segment')
@@ -594,6 +819,14 @@ const PathTab: React.FC<PathTabProps> = ({
     } else if (action === 'rename' && itemId) {
       setRenamingItemId(itemId)
       setRenamingClickPos(contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null)
+    } else if (action === 'moveUp' && itemId) {
+      console.log(`[PathTab] Moving up ${itemId}`)
+      handleMoveUp(itemId)
+      return
+    } else if (action === 'moveDown' && itemId) {
+      console.log(`[PathTab] Moving down ${itemId}`)
+      handleMoveDown(itemId)
+      return
     } else if (action === 'removeFromParent' && itemId) {
       console.log(`[PathTab] Triggering remove from parent for ${itemId}`)
       handleRemoveFromParent(itemId)
@@ -1055,11 +1288,11 @@ const PathTab: React.FC<PathTabProps> = ({
         {/* Context Menu */}
         {contextMenu && (
           <Menu
+            key={`menu-${menuCounter}-${contextMenu.itemId || 'background'}`}
             items={getContextMenuItems()}
             position={{ x: contextMenu.x, y: contextMenu.y }}
             onClose={handleCloseContextMenu}
             onItemClick={handleMenuItemClick}
-            onContextMenu={handleContextMenu}
           />
         )}
 
@@ -1216,17 +1449,18 @@ const PathTab: React.FC<PathTabProps> = ({
             onUpdateColWidthRatio={(ratios) => {
               onDataChange({ ...data, colWidthRatio: ratios })
             }}
+            onRefresh={loadItems}
           />
         )}
         
         {/* Context Menu */}
         {contextMenu && (
           <Menu
+            key={`menu-${menuCounter}-${contextMenu.itemId || 'background'}`}
             items={getContextMenuItems()}
             position={{ x: contextMenu.x, y: contextMenu.y }}
             onClose={handleCloseContextMenu}
             onItemClick={handleMenuItemClick}
-            onContextMenu={handleContextMenu}
           />
         )}
 

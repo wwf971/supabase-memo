@@ -1,7 +1,9 @@
 // @ts-nocheck
-import React from 'react'
+import React, { useState } from 'react'
 import { ListItem, ItemRole } from '../path/SegList'
 import SegList from '../path/SegList'
+import { Refresh } from '@wwf971/react-comp-misc'
+import { refreshChildren } from '../cache/refreshCache'
 import './SegView.css'
 
 interface SegViewProps {
@@ -19,6 +21,7 @@ interface SegViewProps {
   onRenameCancel?: () => void
   colWidthRatio?: Record<string, number>
   onUpdateColWidthRatio?: (ratios: Record<string, number>) => void
+  onRefresh?: () => void
 }
 
 /**
@@ -38,8 +41,32 @@ const SegView: React.FC<SegViewProps> = ({
   onRenameSubmit,
   onRenameCancel,
   colWidthRatio,
-  onUpdateColWidthRatio
+  onUpdateColWidthRatio,
+  onRefresh
 }) => {
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  // Handle refresh button click
+  const handleRefresh = async () => {
+    if (isRefreshing || !segmentId) return
+    
+    setIsRefreshing(true)
+    try {
+      console.log('[SegView] Refreshing children for', segmentId)
+      
+      // Clear and re-fetch cache
+      await refreshChildren(segmentId)
+      
+      // Trigger parent component to reload items
+      if (onRefresh) {
+        onRefresh()
+      }
+    } catch (err) {
+      console.error('[SegView] Error refreshing:', err)
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   // Calculate stats
   const totalItems = items.length
   const segmentCount = items.filter(item => item.type === 'segment').length
@@ -63,8 +90,11 @@ const SegView: React.FC<SegViewProps> = ({
   return (
     <div className="seg-view">
       <div className="seg-view-header">
-        <div className="seg-view-title">
-          {segmentName || '(unnamed segment)'}/
+        <div className="seg-view-header-left">
+          <div className="seg-view-title">
+            {segmentName || '(unnamed segment)'}/
+          </div>
+          <div className="seg-view-id">{segmentId}</div>
         </div>
         <div className="seg-view-meta">
           <span className="seg-stat-badge">
@@ -76,6 +106,14 @@ const SegView: React.FC<SegViewProps> = ({
           <span className="seg-stat-badge content-badge">
             {contentCount} content{contentCount !== 1 ? 's' : ''}
           </span>
+          <button 
+            className="refresh-button"
+            onClick={handleRefresh}
+            disabled={isRefreshing || loading}
+            title="Refresh children"
+          >
+            <Refresh width={16} height={16} />
+          </button>
         </div>
       </div>
       <div className="seg-view-body">
@@ -90,7 +128,7 @@ const SegView: React.FC<SegViewProps> = ({
           isRenamingInProgress={isRenamingInProgress}
           onRenameSubmit={onRenameSubmit}
           onRenameCancel={onRenameCancel}
-          columns={['name', 'path', 'type']}
+          columns={['name', 'path', 'type', 'rank']}
           colWidthRatio={colWidthRatio}
           onUpdateColWidthRatio={onUpdateColWidthRatio}
           showRoleSelection={true}

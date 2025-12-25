@@ -177,8 +177,9 @@ class SegmentRelationCache {
   /**
    * Add a relation to cache (after creating in DB)
    * Updates both forward and reverse indices
+   * Note: rank parameter is optional and not stored in cache (rank is only used for ordering during fetch)
    */
-  addRelation(parentId: string, childId: string, relationType: number): void {
+  addRelation(parentId: string, childId: string, relationType: number, rank?: number): void {
     // Update parent -> child mapping
     if (!this.parentToChildren.has(parentId)) {
       this.parentToChildren.set(parentId, new Map())
@@ -202,7 +203,8 @@ class SegmentRelationCache {
     // Invalidate path cache for affected segments
     segPathCache.delete(childId)
     
-    console.log(`[segRelationCache] ➕ Added relation: ${parentId} -> ${childId} (type ${relationType})`)
+    const rankInfo = rank !== undefined ? `, rank ${rank}` : ''
+    console.log(`[segRelationCache] ➕ Added relation: ${parentId} -> ${childId} (type ${relationType}${rankInfo})`)
   }
 
   /**

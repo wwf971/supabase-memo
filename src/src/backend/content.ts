@@ -26,12 +26,15 @@ export async function createContent(
     
     // Note: content.name is stored in segment table for consistency
     // Create a segment entry with the name
-    const { error: segError } = await client
+    const { data: segData, error: segError } = await client
       .from('segment')
       .insert({
         id: id,
-        name: name  // Empty string allowed for segment-bound content
+        name: name,  // Empty string allowed for segment-bound content
+        isContent: true  // Mark this as content, not a segment
       })
+      .select()
+      .single()
     
     if (segError) {
       return { code: -1, message: `Failed to create segment entry: ${segError.message}` }
@@ -55,6 +58,14 @@ export async function createContent(
     // Cache the content if requested
     if (updateCache) {
       contentCache.set(id, { id, type_code: typeCode, value })
+      segmentCache.set(id, {
+        id: segData.id,
+        name: segData.name,
+        isContent: segData.isContent ?? true,
+        created_at: segData.created_at,
+        updated_at: segData.updated_at,
+        metadata: segData.metadata || {}
+      })
       console.log(`[content] Created content: ${id} (name: "${name}", type: ${typeCode}) - cached`)
     } else {
       console.log(`[content] Created content: ${id} (name: "${name}", type: ${typeCode}) - not cached`)

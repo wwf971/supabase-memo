@@ -107,6 +107,15 @@
   border-top: 1px solid #dee2e6;
 }
 
+.panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #dee2e6;
+}
+
 .btn-cancel,
 .btn-add {
   padding: 8px 16px;

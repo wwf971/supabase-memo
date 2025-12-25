@@ -319,90 +319,81 @@ $$ LANGUAGE plpgsql;`
  * Get tree structure recursively from a segment
  * Returns full tree with all descendants using direct parent-child relationships
  */
-export const createGetSegmentTreeFunction = () => `-- Function: Get full tree structure from a segment
--- Returns recursive tree with all direct children (segments and content)
--- Result is JSONB with nested structure: {id: {type, content, children}}
-CREATE OR REPLACE FUNCTION get_segment_tree(root_segment_id TEXT)
+export const createGetSegmentTreeFunction = () => `-- Helper function to build tree for a node recursively
+CREATE OR REPLACE FUNCTION build_node_tree(node_id TEXT)
 RETURNS JSONB AS $$
 DECLARE
-  result JSONB := '{}'::jsonb;
+  node_data RECORD;
+  children_data JSONB;
 BEGIN
-  -- Build tree recursively using CTE
-  WITH RECURSIVE tree AS (
-    -- Base case: direct children of root
-    SELECT 
-      sr.segment_2 AS child_id,
-      sr.segment_1 AS parent_id,
-      1 AS depth
-    FROM segment_relation sr
-    WHERE sr.segment_1 = root_segment_id 
-      AND sr.type = 0  -- Only direct relationships
-    
-    UNION ALL
-    
-    -- Recursive case: children of children
-    SELECT 
-      sr.segment_2 AS child_id,
-      sr.segment_1 AS parent_id,
-      t.depth + 1 AS depth
-    FROM tree t
-    INNER JOIN segment_relation sr ON sr.segment_1 = t.child_id
-    WHERE sr.type = 0  -- Only direct relationships
-      AND t.depth < 100  -- Prevent infinite loops
-  ),
-  -- Get all items in tree with their data
-  tree_items AS (
-    SELECT DISTINCT
-      t.child_id AS id,
-      t.parent_id,
-      s.name,
-      s.created_at,
-      s.updated_at,
-      CASE WHEN c.id IS NOT NULL THEN 'content' ELSE 'segment' END AS item_type,
-      c.type_code,
-      c.value,
-      ct.type_name
-    FROM tree t
-    LEFT JOIN segment s ON s.id = t.child_id
-    LEFT JOIN content c ON c.id = t.child_id
-    LEFT JOIN content_type ct ON ct.type_code = c.type_code
-  )
-  -- Build JSON result
-  SELECT jsonb_object_agg(
-    ti.id,
-    jsonb_build_object(
-      'type', ti.item_type,
-      'name', ti.name,
-      'created_at', ti.created_at,
-      'updated_at', ti.updated_at,
-      'content', CASE 
-        WHEN ti.item_type = 'content' THEN 
-          jsonb_build_object(
-            'type_code', ti.type_code,
-            'type_name', ti.type_name,
-            'value', ti.value
-          )
-        ELSE NULL
-      END,
-      'children', (
-        SELECT jsonb_object_agg(
-          child.id,
-          jsonb_build_object(
-            'type', child.item_type,
-            'name', child.name
-          )
-        )
-        FROM tree_items child
-        WHERE child.parent_id = ti.id
-      )
-    )
-  )
-  INTO result
-  FROM tree_items ti
-  WHERE ti.parent_id = root_segment_id;
+  -- Get node info
+  SELECT 
+    s.id,
+    s.name,
+    CASE WHEN c.id IS NOT NULL THEN 'content' ELSE 'segment' END AS item_type,
+    c.type_code,
+    c.value,
+    ct.type_name
+  INTO node_data
+  FROM segment s
+  LEFT JOIN content c ON c.id = s.id
+  LEFT JOIN content_type ct ON ct.type_code = c.type_code
+  WHERE s.id = node_id;
   
-  RETURN COALESCE(result, '{}'::jsonb);
+  -- If node doesn't exist, return null
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  
+  -- Get all direct children recursively
+  SELECT COALESCE(
+    jsonb_object_agg(
+      child_id,
+      build_node_tree(child_id)
+    ),
+    '{}'::jsonb
+  )
+  INTO children_data
+  FROM (
+    SELECT sr.segment_2 AS child_id
+    FROM segment_relation sr
+    WHERE sr.segment_1 = node_id AND sr.type = 0
+  ) children;
+  
+  -- Build and return node JSON (order: type, name, content if applicable, children)
+  IF node_data.item_type = 'content' THEN
+    RETURN jsonb_build_object(
+      'type', node_data.item_type,
+      'name', node_data.name,
+      'content', jsonb_build_object(
+        'type_code', node_data.type_code,
+        'type_name', node_data.type_name,
+        'value', node_data.value
+      ),
+      'children', children_data
+    );
+  ELSE
+    RETURN jsonb_build_object(
+      'type', node_data.item_type,
+      'name', node_data.name,
+      'children', children_data
+    );
+  END IF;
 END;
 $$ LANGUAGE plpgsql STABLE;
+
+-- Main function: Get full tree structure from a segment
+CREATE OR REPLACE FUNCTION get_segment_tree(root_segment_id TEXT)
+RETURNS JSONB AS $$
+  SELECT COALESCE(
+    jsonb_object_agg(
+      sr.segment_2,
+      build_node_tree(sr.segment_2)
+    ),
+    '{}'::jsonb
+  )
+  FROM segment_relation sr
+  WHERE sr.segment_1 = root_segment_id AND sr.type = 0;
+$$ LANGUAGE sql STABLE;
 `
 

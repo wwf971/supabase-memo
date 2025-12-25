@@ -158,6 +158,13 @@
   max-width: 0;
 }
 
+.rank-cell {
+  color: #6c757d;
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Row styling based on type */
 .segment-row {
   cursor: pointer;

@@ -15,16 +15,59 @@
   gap: 4px;
 }
 
+.seg-view-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .seg-view-title {
   font-size: 18px;
   font-weight: 600;
   color: #212529;
 }
 
+.seg-view-id {
+  font-size: 12px;
+  color: #666;
+  font-family: 'Courier New', monospace;
+  background: #e9ecef;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
 .seg-view-meta {
   display: flex;
   gap: 4px;
   align-items: center;
+}
+
+.seg-view-meta .refresh-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s ease;
+}
+
+.seg-view-meta .refresh-button:hover:not(:disabled) {
+  background: #f5f5f5;
+  color: #333;
+  border-color: #999;
+}
+
+.seg-view-meta .refresh-button:active:not(:disabled) {
+  background: #e5e5e5;
+}
+
+.seg-view-meta .refresh-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .seg-stat-badge {

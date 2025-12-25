@@ -11,6 +11,7 @@ interface HeaderAction {
 
 interface HeaderProps {
   title: string
+  id?: string
   badge?: string
   actions?: HeaderAction[]
 }
@@ -18,11 +19,14 @@ interface HeaderProps {
 /**
  * Header - Unified header component for content/segment views
  */
-const Header: React.FC<HeaderProps> = ({ title, badge, actions }) => {
+const Header: React.FC<HeaderProps> = ({ title, id, badge, actions }) => {
   return (
     <div className="view-header">
-      <div className="view-header-title">
-        {title || '(unnamed)'}
+      <div className="view-header-left">
+        <div className="view-header-title">
+          {title || '(unnamed)'}
+        </div>
+        {id && <div className="view-header-id">{id}</div>}
       </div>
       <div className="view-header-meta">
         {badge && <span className="view-header-badge">{badge}</span>}

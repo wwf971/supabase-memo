@@ -9,6 +9,7 @@ export interface ListItem {
   name: string
   type: 'segment' | 'content'
   relationTypes?: number[]  // All relationship types (0=direct, 1=indirect, 2=bind)
+  rank?: number  // Rank for ordering (only for direct children, type=0)
   value?: string  // Only for content
   contentType?: number  // Only for content
   path?: string  // Path to root (e.g., "root > parent > current")
@@ -22,7 +23,7 @@ export interface ItemRole {
   // But both can be false (only bind relationship)
 }
 
-export type SegListColumn = 'name' | 'path' | 'type' | 'value'
+export type SegListColumn = 'name' | 'path' | 'type' | 'value' | 'rank'
 
 interface SegListProps {
   items: ListItem[]
@@ -287,6 +288,14 @@ const SegList: React.FC<SegListProps> = ({
                 </div>
               </th>
             )}
+            {columns.includes('rank') && (
+              <th style={columnWidths['rank'] ? { width: columnWidths['rank'] } : undefined}>
+                <div className="th-content">
+                  Rank
+                  <div className="resize-handle" onMouseDown={(e) => handleResizeStart(e, 'rank', columns.indexOf('rank'))} />
+                </div>
+              </th>
+            )}
             {showDirectParentRadio && (
               <th className="radio-header" style={columnWidths['direct'] ? { width: columnWidths['direct'] } : undefined}>
                 <div className="th-content">
@@ -345,19 +354,19 @@ const SegList: React.FC<SegListProps> = ({
             <tr
               key={item.id}
               onDoubleClick={() => handleDoubleClick(item)}
+              onContextMenu={(e) => {
+                if (onItemContextMenu) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onItemContextMenu(e, item.id, item.type)
+                }
+              }}
               className={`${item.type === 'segment' ? 'segment-row' : 'content-row'} ${selectionMode ? 'selection-mode' : ''}`}
             >
               {columns.includes('name') && (
                 <td 
                   className="name-cell"
                   title={item.name}
-                  onContextMenu={(e) => {
-                    if (onItemContextMenu) {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      onItemContextMenu(e, item.id, item.type)
-                    }
-                  }}
                 >
                   {renamingItemId === item.id ? (
                     <span className="name-cell-rename-wrapper">
@@ -495,6 +504,11 @@ const SegList: React.FC<SegListProps> = ({
               {columns.includes('value') && (
                 <td className="value-cell" title={item.type === 'content' ? (item.value || '') : '-'}>
                   {item.type === 'content' ? (item.value || '') : '-'}
+                </td>
+              )}
+              {columns.includes('rank') && (
+                <td className="rank-cell" title={item.rank !== undefined ? String(item.rank) : '-'}>
+                  {item.rank !== undefined ? item.rank : '-'}
                 </td>
               )}
               {showDirectParentRadio && (

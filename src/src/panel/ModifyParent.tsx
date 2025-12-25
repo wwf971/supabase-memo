@@ -5,9 +5,10 @@ import SegSelect, { SelectItem } from '../path/SegSelect'
 import { SpinningCircle } from '@wwf971/react-comp-misc'
 import { createRelation, deleteRelation, SegmentRelationType, getParents } from '../backend/segment'
 import { getSupabaseClient } from '../backend/supabase'
-import { segChildrenCache, segmentCache, contentCache, segPathCache, segRelationCache } from '../cache/cache'
+import { segmentCache, contentCache, segPathCache, segRelationCache } from '../cache/cache'
 import { getSegments } from '../path/PathUtils'
 import './AddContent.css'  // Reuse AddContent styles
+import './SegCreate.css'  // For button styles
 
 interface ModifyParentProps {
   itemId: string  // The segment/content whose parents we're modifying
@@ -172,10 +173,26 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
   }
 
   const handleRoleChange = (itemId: string, role: ItemRole) => {
-    setParentRoles({
-      ...parentRoles,
-      [itemId]: role
-    })
+    const updatedRoles = { ...parentRoles }
+    
+    // If user checked direct parent, ensure only one direct parent exists
+    if (role.isDirect) {
+      // Uncheck direct for all other parents and set them to indirect if they were direct
+      Object.keys(updatedRoles).forEach(pid => {
+        if (pid !== itemId && updatedRoles[pid].isDirect) {
+          updatedRoles[pid] = {
+            ...updatedRoles[pid],
+            isDirect: false,
+            isIndirect: true  // Convert to indirect
+          }
+        }
+      })
+    }
+    
+    // Update the current item's role
+    updatedRoles[itemId] = role
+    
+    setParentRoles(updatedRoles)
   }
 
   const handleSave = async () => {
@@ -185,11 +202,21 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
     try {
       const client = getSupabaseClient()
 
+      // Filter out parents with no roles checked (treat as removal)
+      const effectiveParentRoles: Record<string, ItemRole> = {}
+      Object.keys(parentRoles).forEach(parentId => {
+        const role = parentRoles[parentId]
+        // Only keep parents with at least one role checked
+        if (role.isDirect || role.isIndirect || role.isBind) {
+          effectiveParentRoles[parentId] = role
+        }
+      })
+
       // Determine what needs to be added, removed, or updated
-      const currentParentIds = Object.keys(parentRoles)
+      const currentParentIds = Object.keys(effectiveParentRoles)
       const originalParentIds = Object.keys(originalRelations)
 
-      // Parents that were removed
+      // Parents that were removed (either explicitly or by unchecking all roles)
       const removedParentIds = originalParentIds.filter(id => !currentParentIds.includes(id))
       
       // Delete all relations for removed parents
@@ -215,8 +242,18 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
 
       // Process each current parent
       for (const parentId of currentParentIds) {
-        const currentRole = parentRoles[parentId]
+        // Validation: prevent self-referential relations
+        if (parentId === itemId) {
+          console.error('[ModifyParent] ❌ CRITICAL: Attempting to create self-referential relation! parentId=itemId=', parentId)
+          setError(`Cannot set item as its own parent`)
+          setIsSaving(false)
+          return
+        }
+
+        const currentRole = effectiveParentRoles[parentId]
         const originalRole = originalRelations[parentId]
+
+        console.log(`[ModifyParent] Processing parent ${parentId} for child ${itemId}`)
 
         // If parent is new or relationship changed, delete old relations and create new ones
         if (!originalRole || 
@@ -254,14 +291,19 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
                     .eq('type', SegmentRelationType.PARENT_CHILD_DIRECT)
 
                   if (oldRelations && oldRelations.length > 0) {
-                    await client
+                    const { error: updateError } = await client
                       .from('segment_relation')
                       .update({ type: SegmentRelationType.PARENT_CHILD_INDIRECT })
                       .eq('id', oldRelations[0].id)
                     
-                    console.log('[ModifyParent] Converted old direct parent to indirect:', oldParentId)
-                    segChildrenCache.delete(oldParentId, SegmentRelationType.PARENT_CHILD_DIRECT)
-                    segChildrenCache.delete(oldParentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+                    if (updateError) {
+                      console.error('[ModifyParent] ❌ Failed to convert old direct parent to indirect:', updateError)
+                    } else {
+                      console.log('[ModifyParent] Converted old direct parent to indirect:', oldParentId)
+                      // Invalidate cache for both old parent and child
+                      segRelationCache.removeRelation(oldParentId, itemId, SegmentRelationType.PARENT_CHILD_DIRECT)
+                      segRelationCache.addRelation(oldParentId, itemId, SegmentRelationType.PARENT_CHILD_INDIRECT)
+                    }
                   }
                 }
               }
@@ -270,14 +312,15 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
 
           // Create direct relation if checked
           if (currentRole.isDirect) {
+            console.log(`[ModifyParent] Creating direct relation: ${parentId} -> ${itemId}`)
             const result = await createRelation(parentId, itemId, SegmentRelationType.PARENT_CHILD_DIRECT)
             if (result.code !== 0) {
+              console.error(`[ModifyParent] ❌ Failed to create direct relation ${parentId}->${itemId}:`, result.message)
               setError(`Failed to create direct relation: ${result.message}`)
               setIsSaving(false)
               return
             }
-            segChildrenCache.delete(parentId, SegmentRelationType.PARENT_CHILD_DIRECT)
-            console.log('[ModifyParent] ✅ Created direct relation:', parentId)
+            console.log('[ModifyParent] ✅ Created direct relation:', parentId, '->', itemId)
           }
 
           // Create indirect relation if checked
@@ -288,7 +331,6 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
               setIsSaving(false)
               return
             }
-            segChildrenCache.delete(parentId, SegmentRelationType.PARENT_CHILD_INDIRECT)
             console.log('[ModifyParent] ✅ Created indirect relation:', parentId)
           }
 
@@ -300,7 +342,6 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
               setIsSaving(false)
               return
             }
-            segChildrenCache.delete(parentId, SegmentRelationType.PARENT_CHILD_BIND)
             console.log('[ModifyParent] ✅ Created bind relation:', parentId)
           }
         }
@@ -411,10 +452,10 @@ const ModifyParent: React.FC<ModifyParentProps> = ({
           disabled={isSaving}
         >
           {isSaving ? (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+            <>
               <SpinningCircle width={16} height={16} />
               Saving...
-            </span>
+            </>
           ) : (
             'Save Changes'
           )}
