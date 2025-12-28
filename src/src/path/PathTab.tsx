@@ -24,13 +24,11 @@ function getItemType(id: string): 'segment' | 'content' | null {
   // Must be in segment cache to exist
   const segment = segmentCache.getSync(id)
   if (!segment) {
-    console.log(`[getItemType] ${id} not in segment cache`)
     return null
   }
   
   // Use isContent field from segment cache
   const type = segment.isContent ? 'content' : 'segment'
-  console.log(`[getItemType] ${id}: isContent=${segment.isContent} → ${type}`)
   return type
 }
 
@@ -101,7 +99,7 @@ const PathTab: React.FC<PathTabProps> = ({
   const prevPathRef = React.useRef<string[]>([])
   
   // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId?: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId?: string; multiSelection?: Set<string> } | null>(null)
   const [menuCounter, setMenuCounter] = useState(0) // Counter to force menu remount
   const [showCreatePanel, setShowCreatePanel] = useState(false)
   const [createType, setCreateType] = useState<'path' | 'content'>('path')
@@ -366,19 +364,8 @@ const PathTab: React.FC<PathTabProps> = ({
     e.preventDefault()
     e.stopPropagation()
     
-    // Find the item in the list to get full details
-    const itemIndex = items.findIndex(i => i.id === itemId)
-    const item = items[itemIndex]
-    const itemName = item?.name || '(unnamed)'
-    
-    console.log(`🎯 [RIGHT-CLICK ITEM] Index: ${itemIndex}, Type: ${itemType}, Name: "${itemName}", ID: ${itemId}`)
-    console.log(`   Menu already open: ${contextMenu !== null}`)
-    console.log(`   Current contextMenu state:`, contextMenu)
-    
     // Always increment counter to force menu remount with new context
-    const newCounter = menuCounter + 1
-    console.log(`   Incrementing menuCounter: ${menuCounter} -> ${newCounter}`)
-    setMenuCounter(newCounter)
+    setMenuCounter(prev => prev + 1)
     setContextMenu({ x: e.clientX, y: e.clientY, itemId })
   }
 
@@ -392,25 +379,17 @@ const PathTab: React.FC<PathTabProps> = ({
     e.preventDefault()
     
     // If menu is currently open, we need to temporarily hide it to detect what's underneath
-    let elementUnderCursor: Element | null = null
-    let targetRow: HTMLTableRowElement | null = null
-    
     if (contextMenu) {
-      console.log(`🔍 [handleContextMenu] Menu is open, need to detect what's underneath at (${e.clientX}, ${e.clientY})`)
-      
       // Temporarily hide the menu to detect what's underneath
       const menuElements = document.querySelectorAll('.context-menu, .menu-backdrop')
       menuElements.forEach(el => (el as HTMLElement).style.pointerEvents = 'none')
       
       // Now detect what's underneath
-      elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY)
-      targetRow = elementUnderCursor?.closest('tr') as HTMLTableRowElement | null
+      const elementUnderCursor = document.elementFromPoint(e.clientX, e.clientY)
+      const targetRow = elementUnderCursor?.closest('tr') as HTMLTableRowElement | null
       
       // Restore pointer events
       menuElements.forEach(el => (el as HTMLElement).style.pointerEvents = '')
-      
-      console.log(`   Element under cursor:`, elementUnderCursor)
-      console.log(`   Closest TR:`, targetRow)
       
       // If there's a table row under the cursor, find the item and trigger item context menu
       if (targetRow && (targetRow.classList.contains('segment-row') || targetRow.classList.contains('content-row'))) {
@@ -420,24 +399,23 @@ const PathTab: React.FC<PathTabProps> = ({
           const rowIndex = Array.from(tbody.children).indexOf(targetRow)
           if (rowIndex >= 0 && rowIndex < items.length) {
             const item = items[rowIndex]
-            console.log(`   ✅ Found item under cursor: Index=${rowIndex}, Name="${item.name}", Type=${item.type}`)
-            
-            // Call item context menu handler directly
-            handleItemContextMenu(e, item.id, item.type)
+            // Dispatch event to update selection in SegView
+            window.dispatchEvent(new CustomEvent('segview-update-selection', { detail: { itemId: item.id } }))
+            // Small delay to let selection update before showing menu
+            setTimeout(() => {
+              handleItemContextMenu(e, item.id, item.type)
+            }, 0)
             return
           }
         }
       }
     }
     
-    console.log(`🎯 [RIGHT-CLICK EMPTY SPACE]`)
-    console.log(`   Menu already open: ${contextMenu !== null}`)
-    console.log(`   Current contextMenu state:`, contextMenu)
+    // Background context menu - also notify SegView to clear selection
+    window.dispatchEvent(new CustomEvent('segview-update-selection', { detail: { itemId: null } }))
     
     // Always increment counter to force menu remount with new context
-    const newCounter = menuCounter + 1
-    console.log(`   Incrementing menuCounter: ${menuCounter} -> ${newCounter}`)
-    setMenuCounter(newCounter)
+    setMenuCounter(prev => prev + 1)
     setContextMenu({ x: e.clientX, y: e.clientY })
   }
 
@@ -516,22 +494,36 @@ const PathTab: React.FC<PathTabProps> = ({
   }
 
   /**
+   * Handle multi-item context menu
+   */
+  const handleMultiItemContextMenu = (e: React.MouseEvent, selectedIds: Set<string>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const newCounter = menuCounter + 1
+    setMenuCounter(newCounter)
+    setContextMenu({ x: e.clientX, y: e.clientY, multiSelection: selectedIds })
+  }
+
+  /**
    * Get context menu items based on context
    */
   const getContextMenuItems = (): MenuItem[] => {
-    console.log(`📋 [GET MENU ITEMS] Called with contextMenu:`, contextMenu)
-    console.log(`   Current menuCounter: ${menuCounter}`)
+    // Multi-selection context menu
+    if (contextMenu?.multiSelection && contextMenu.multiSelection.size > 1) {
+      return [
+        {
+          type: 'item',
+          name: 'Test',
+          data: { action: 'testMulti', selectedIds: Array.from(contextMenu.multiSelection) }
+        }
+      ]
+    }
     
     if (contextMenu?.itemId) {
       // Context menu for an item - check its type from cache
       const itemType = getItemType(contextMenu.itemId)
       const item = items.find(i => i.id === contextMenu.itemId)
-      const itemName = item?.name || '(unnamed)'
-      const itemIndex = items.findIndex(i => i.id === contextMenu.itemId)
       const isDirectChild = item?.relationTypes?.includes(0) || false
-      
-      console.log(`   📄 ITEM MENU for: Index=${itemIndex}, Type=${itemType}, Name="${itemName}", IsDirectChild=${isDirectChild}`)
-      console.log(`   RelationTypes:`, item?.relationTypes)
       
       if (itemType === 'content') {
       // Context menu for content item
@@ -582,7 +574,6 @@ const PathTab: React.FC<PathTabProps> = ({
         }
       )
       
-      console.log(`   ✅ Returning ${menuItems.length} menu items for CONTENT:`, menuItems.map(m => m.name))
       return menuItems
       } else {
         // Context menu for segment - could add segment-specific actions here
@@ -633,14 +624,11 @@ const PathTab: React.FC<PathTabProps> = ({
           }
         )
         
-        console.log(`   ✅ Returning ${menuItems.length} menu items for SEGMENT:`, menuItems.map(m => m.name))
         return menuItems
       }
     } else {
       // Context menu for background (create new items / add content to current segment)
       const currentSegmentId = data.currentPath[data.currentPath.length - 1]
-      const currentSegmentName = currentSegmentId ? (segmentCache.getSync(currentSegmentId)?.name || '(unnamed)') : 'root'
-      console.log(`   🌐 BACKGROUND MENU for segment: "${currentSegmentName}" (${currentSegmentId || 'root'})`)
       const menuItems: MenuItem[] = []
       
       // Add "Add Content" if we have a current segment
@@ -696,7 +684,6 @@ const PathTab: React.FC<PathTabProps> = ({
         ]
       })
       
-      console.log(`   ✅ Returning ${menuItems.length} menu items for BACKGROUND:`, menuItems.map(m => m.name))
       return menuItems
     }
   }
@@ -775,8 +762,15 @@ const PathTab: React.FC<PathTabProps> = ({
    * Handle menu item click
    */
   const handleMenuItemClick = (item: MenuItemSingle) => {
-    const { action, itemId, itemType, contentType } = item.data || {}
-    console.log(`[PathTab] Menu item clicked:`, { action, itemId, itemType, contentType })
+    const { action, itemId, itemType, contentType, selectedIds } = item.data || {}
+    console.log(`[PathTab] Menu item clicked:`, { action, itemId, itemType, contentType, selectedIds })
+    
+    // Handle multi-selection actions
+    if (action === 'testMulti' && selectedIds) {
+      console.log(`[PathTab] Test action for ${selectedIds.length} selected items:`, selectedIds)
+      handleCloseContextMenu()
+      return
+    }
     
     if (action === 'view' && itemId) {
       // View content - get item info and navigate to show ContentView
@@ -1440,6 +1434,7 @@ const PathTab: React.FC<PathTabProps> = ({
             error={error}
             onItemDoubleClick={handleItemDoubleClick}
             onItemContextMenu={handleItemContextMenu}
+            onMultiItemContextMenu={handleMultiItemContextMenu}
             renamingItemId={renamingItemId}
             renamingClickPos={renamingClickPos}
             isRenamingInProgress={isRenamingInProgress}

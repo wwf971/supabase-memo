@@ -14,6 +14,8 @@ interface SegViewProps {
   error?: string | null
   onItemDoubleClick?: (itemId: string, itemType: 'segment' | 'content') => void
   onItemContextMenu?: (e: React.MouseEvent, itemId: string, itemType: 'segment' | 'content') => void
+  onMultiItemContextMenu?: (e: React.MouseEvent, selectedIds: Set<string>) => void
+  onEmptySpaceClick?: () => void  // Called when clicking on empty space
   renamingItemId?: string | null
   renamingClickPos?: { x: number; y: number } | null
   isRenamingInProgress?: boolean
@@ -35,6 +37,8 @@ const SegView: React.FC<SegViewProps> = ({
   error = null,
   onItemDoubleClick,
   onItemContextMenu,
+  onMultiItemContextMenu,
+  onEmptySpaceClick,
   renamingItemId,
   renamingClickPos,
   isRenamingInProgress,
@@ -45,6 +49,9 @@ const SegView: React.FC<SegViewProps> = ({
   onRefresh
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false)
+  // Multi-selection state
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [allowMultiSelect, setAllowMultiSelect] = useState(true) // Enable by default
   // Handle refresh button click
   const handleRefresh = async () => {
     if (isRefreshing || !segmentId) return
@@ -66,6 +73,70 @@ const SegView: React.FC<SegViewProps> = ({
       setIsRefreshing(false)
     }
   }
+
+  // Clear selection when navigating to different segment
+  React.useEffect(() => {
+    setSelectedItemIds(new Set())
+  }, [segmentId])
+
+  // Handle selection change from SegList
+  const handleSelectionChange = (newSelection: Set<string>) => {
+    setSelectedItemIds(newSelection)
+  }
+
+  // Wrap context menu handler to include selection info
+  const handleContextMenuWithSelection = (e: React.MouseEvent, itemId: string, itemType: 'segment' | 'content') => {
+    if (allowMultiSelect) {
+      // If right-clicking on an item that's already in a multi-selection, keep the multi-selection
+      if (selectedItemIds.size > 1 && selectedItemIds.has(itemId)) {
+        // Show multi-selection menu
+        if (onMultiItemContextMenu) {
+          e.preventDefault()
+          e.stopPropagation()
+          onMultiItemContextMenu(e, selectedItemIds)
+        }
+        return
+      }
+      
+      // Otherwise, select only the right-clicked item (standard behavior)
+      setSelectedItemIds(new Set([itemId]))
+    }
+    
+    // Show single-item menu
+    if (onItemContextMenu) {
+      onItemContextMenu(e, itemId, itemType)
+    }
+  }
+
+  // Handle clicking on empty space (clear selection)
+  const handleEmptySpaceClickInternal = () => {
+    if (allowMultiSelect) {
+      setSelectedItemIds(new Set())
+    }
+    onEmptySpaceClick?.()
+  }
+
+  // Expose selection update to parent for when items are detected via elementFromPoint
+  React.useEffect(() => {
+    // Add custom event listener for selection updates
+    const handleSelectionUpdate = (e: CustomEvent) => {
+      const { itemId } = e.detail
+      if (allowMultiSelect) {
+        if (itemId) {
+          // Select specific item
+          setSelectedItemIds(new Set([itemId]))
+        } else {
+          // Clear selection (null itemId means background click)
+          setSelectedItemIds(new Set())
+        }
+      }
+    }
+    
+    window.addEventListener('segview-update-selection' as any, handleSelectionUpdate as any)
+    return () => {
+      window.removeEventListener('segview-update-selection' as any, handleSelectionUpdate as any)
+    }
+  }, [allowMultiSelect])
 
   // Calculate stats
   const totalItems = items.length
@@ -122,7 +193,7 @@ const SegView: React.FC<SegViewProps> = ({
           loading={loading}
           error={error}
           onItemDoubleClick={onItemDoubleClick}
-          onItemContextMenu={onItemContextMenu}
+          onItemContextMenu={handleContextMenuWithSelection}
           renamingItemId={renamingItemId}
           renamingClickPos={renamingClickPos}
           isRenamingInProgress={isRenamingInProgress}
@@ -134,6 +205,10 @@ const SegView: React.FC<SegViewProps> = ({
           showRoleSelection={true}
           itemRoles={itemRoles}
           roleSelectionReadOnly={true}
+          allowMultiSelect={allowMultiSelect}
+          selectedItemIds={selectedItemIds}
+          onSelectionChange={handleSelectionChange}
+          onEmptySpaceClick={handleEmptySpaceClickInternal}
         />
       </div>
     </div>

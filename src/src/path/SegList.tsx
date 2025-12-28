@@ -52,6 +52,11 @@ interface SegListProps {
   itemRoles?: Record<string, ItemRole>  // Current role for each item { [itemId]: { isDirect, isBind } }
   onRoleChange?: (itemId: string, role: ItemRole) => void  // Callback when role changes
   roleSelectionReadOnly?: boolean  // If true, role checkboxes are disabled (read-only display)
+  // Multi-selection props
+  allowMultiSelect?: boolean  // Enable multi-selection with Shift/Ctrl+Click
+  selectedItemIds?: Set<string>  // Currently selected item IDs (controlled)
+  onSelectionChange?: (selectedIds: Set<string>) => void  // Callback when selection changes
+  onEmptySpaceClick?: () => void  // Callback when empty space is clicked
 }
 
 
@@ -83,9 +88,15 @@ const SegList: React.FC<SegListProps> = ({
   showRoleSelection = false,
   itemRoles = {},
   onRoleChange,
-  roleSelectionReadOnly = false
+  roleSelectionReadOnly = false,
+  allowMultiSelect = false,
+  selectedItemIds = new Set<string>(),
+  onSelectionChange,
+  onEmptySpaceClick
 }) => {
   const [editingName, setEditingName] = useState<string>('')
+  // Multi-selection state: track last clicked item for shift-click range selection
+  const [lastClickedItemId, setLastClickedItemId] = useState<string | null>(null)
   // Column widths state (in pixels)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [resizing, setResizing] = useState<string | null>(null)
@@ -103,6 +114,81 @@ const SegList: React.FC<SegListProps> = ({
     if (onItemDoubleClick) {
       onItemDoubleClick(item.id, item.type)
     }
+  }
+
+  // Multi-selection: Handle single click with modifier keys
+  const handleItemClick = (e: React.MouseEvent, item: ListItem) => {
+    if (!allowMultiSelect || !onSelectionChange) return
+
+    const itemId = item.id
+    const isShift = e.shiftKey
+    const isCtrl = e.ctrlKey || e.metaKey
+
+    // Case 1: Ctrl+Shift+Click - Add range to existing selection
+    if (isCtrl && isShift && lastClickedItemId) {
+      const newSelection = new Set(selectedItemIds)
+      const range = getItemRange(lastClickedItemId, itemId)
+      range.forEach(id => newSelection.add(id))
+      onSelectionChange(newSelection)
+      setLastClickedItemId(itemId)
+    }
+    // Case 2: Shift+Click - Clear selection and select range
+    else if (isShift && lastClickedItemId) {
+      const range = getItemRange(lastClickedItemId, itemId)
+      onSelectionChange(new Set(range))
+      setLastClickedItemId(itemId)
+    }
+    // Case 3: Ctrl+Click - Toggle item selection
+    else if (isCtrl) {
+      const newSelection = new Set(selectedItemIds)
+      if (newSelection.has(itemId)) {
+        newSelection.delete(itemId)
+      } else {
+        newSelection.add(itemId)
+      }
+      onSelectionChange(newSelection)
+      setLastClickedItemId(itemId)
+    }
+    // Case 4: Regular click - Select only this item
+    else {
+      onSelectionChange(new Set([itemId]))
+      setLastClickedItemId(itemId)
+    }
+  }
+
+  // Handle right-click
+  const handleItemContextMenu = (e: React.MouseEvent, item: ListItem) => {
+    // Update last clicked for future range selections
+    if (allowMultiSelect) {
+      setLastClickedItemId(item.id)
+    }
+    
+    // Call the original context menu handler (which will handle selection in SegView)
+    if (onItemContextMenu) {
+      e.preventDefault()
+      e.stopPropagation()
+      onItemContextMenu(e, item.id, item.type)
+    }
+  }
+
+  // Prevent text selection when shift-clicking (for range selection)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (allowMultiSelect && e.shiftKey) {
+      e.preventDefault() // Prevent text selection during shift-click
+    }
+  }
+
+  // Get range of items between two IDs (inclusive)
+  const getItemRange = (fromId: string, toId: string): string[] => {
+    const fromIndex = items.findIndex(item => item.id === fromId)
+    const toIndex = items.findIndex(item => item.id === toId)
+    
+    if (fromIndex === -1 || toIndex === -1) return []
+    
+    const startIndex = Math.min(fromIndex, toIndex)
+    const endIndex = Math.max(fromIndex, toIndex)
+    
+    return items.slice(startIndex, endIndex + 1).map(item => item.id)
   }
 
   const handleResizeStart = (e: React.MouseEvent, column: string, columnIndex: number) => {
@@ -251,8 +337,21 @@ const SegList: React.FC<SegListProps> = ({
     return <div className="seg-list-empty">No items</div>
   }
 
+  // Handle click on wrapper (for empty space clicks)
+  const handleWrapperClick = (e: React.MouseEvent) => {
+    // Only handle if clicking on the wrapper div itself or the table (not rows)
+    const target = e.target as HTMLElement
+    if (target.classList.contains('seg-list') || target.classList.contains('seg-list-table')) {
+      // Clicked on empty space - clear selection and notify parent
+      if (allowMultiSelect && onSelectionChange) {
+        onSelectionChange(new Set())
+      }
+      onEmptySpaceClick?.()
+    }
+  }
+
   return (
-    <div className="seg-list" style={padding !== undefined ? { padding } : undefined}>
+    <div className="seg-list" style={padding !== undefined ? { padding } : undefined} onClick={handleWrapperClick}>
       <table className="seg-list-table" ref={tableRef}>
         <thead>
           <tr ref={trRef}>
@@ -350,18 +449,20 @@ const SegList: React.FC<SegListProps> = ({
           </tr>
         </thead>
         <tbody>
-          {items.map(item => (
+          {items.map(item => {
+            const isSelected = selectedItemIds.has(item.id)
+            return (
             <tr
               key={item.id}
-              onDoubleClick={() => handleDoubleClick(item)}
-              onContextMenu={(e) => {
-                if (onItemContextMenu) {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onItemContextMenu(e, item.id, item.type)
+              onClick={(e) => {
+                if (allowMultiSelect) {
+                  handleItemClick(e, item)
                 }
               }}
-              className={`${item.type === 'segment' ? 'segment-row' : 'content-row'} ${selectionMode ? 'selection-mode' : ''}`}
+              onDoubleClick={() => handleDoubleClick(item)}
+              onContextMenu={(e) => handleItemContextMenu(e, item)}
+              onMouseDown={handleMouseDown}
+              className={`${item.type === 'segment' ? 'segment-row' : 'content-row'} ${selectionMode ? 'selection-mode' : ''} ${isSelected ? 'selected' : ''}`}
             >
               {columns.includes('name') && (
                 <td 
@@ -573,7 +674,8 @@ const SegList: React.FC<SegListProps> = ({
                 </td>
               )}
             </tr>
-          ))}
+          )}
+          )}
         </tbody>
       </table>
     </div>

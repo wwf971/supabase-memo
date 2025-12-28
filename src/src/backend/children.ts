@@ -144,31 +144,29 @@ export async function loadChildrenItems(parentId: string): Promise<{ code: numbe
       relationTypesMap.get(childId)!.push(SegmentRelationType.PARENT_CHILD_INDIRECT)
     }
 
-    // Process all children (bind has highest priority for display)
-    // Priority order: bound > direct (ordered by rank) > indirect
+    // process all children (bind has highest priority for display)
+    // priority order: bound > direct (ordered by rank) > indirect
     const allChildIds = [...boundIds, ...directIds, ...indirectIds]
     
     for (const childId of allChildIds) {
-      // Skip if already added
+      // skip if already added
       if (addedIds.has(childId)) continue
       
       const segData = await segmentCache.get(childId)
       if (!segData) continue
       
-      // Determine relationship types
+      // determine relationship types
       const relationTypes = relationTypesMap.get(childId) || []
       const isBind = relationTypes.includes(SegmentRelationType.PARENT_CHILD_BIND)
       const rank = rankMap.get(childId) // Get rank for direct children
       
-      // Only fetch content if:
-      // 1. Child is bound (bind relationships are always to content), OR
-      // 2. Child is already in content cache
-      const shouldFetchContent = isBind || contentCache.has(childId)
+      // determine if this is content based on segment cache's isContent flag
+      const itemType = segData.isContent ? 'content' : 'segment'
       
-      const contentData = shouldFetchContent ? await contentCache.get(childId) : null
-      const itemType = contentData ? 'content' : 'segment'
+      // only fetch content data if this is a content item
+      const contentData = itemType === 'content' ? await contentCache.get(childId) : null
       
-      // Calculate path
+      // calculate path
       let pathStr = '/'
       if (itemType === 'segment') {
         pathStr = await formatSegmentPath(childId)

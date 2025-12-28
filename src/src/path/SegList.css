@@ -187,6 +187,15 @@
   cursor: default;
 }
 
+/* Multi-selection styles */
+.seg-list-table tbody tr.selected {
+  background-color: #d1e7ff !important;
+}
+
+.seg-list-table tbody tr.selected:hover {
+  background-color: #b8daff !important;
+}
+
 .radio-header {
   min-width: 70px;
   text-align: center;
